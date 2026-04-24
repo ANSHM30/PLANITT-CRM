@@ -1,3 +1,5 @@
+import Sidebar from "./sidebar";
+
 type DashboardShellProps = {
   children: React.ReactNode;
 };
@@ -10,13 +12,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
           <p className="brand">Planitt</p>
           <p className="brand-subtitle">CRM Workspace</p>
         </div>
-        <nav className="nav">
-          <a href="/">Dashboard</a>
-          <a href="/">Leads</a>
-          <a href="/">Contacts</a>
-          <a href="/">Deals</a>
-          <a href="/">Tasks</a>
-        </nav>
+        <Sidebar />
       </aside>
       <div className="content">{children}</div>
     </main>
