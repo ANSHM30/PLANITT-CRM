@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearToken } from "@/lib/auth";
+import { useTheme } from "@/components/providers/theme-provider";
 import type { CRMUser } from "@/types/crm";
 
 type CRMShellProps = {
@@ -21,10 +23,14 @@ const roleLabel: Record<CRMUser["role"], string> = {
 export function CRMShell({ children, user }: CRMShellProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme, setTheme } = useTheme();
 
   const navItems = [
     { href: "/dashboard", label: "Overview" },
     { href: "/tasks", label: "Tasks" },
+    ...(user.role === "SUPERADMIN" || user.role === "ADMIN" || user.role === "MANAGER"
+      ? [{ href: "/projects", label: "Projects" }]
+      : []),
     ...(user.role === "SUPERADMIN" || user.role === "ADMIN" || user.role === "MANAGER"
       ? [{ href: "/employees", label: "Team" }]
       : []),
@@ -38,26 +44,58 @@ export function CRMShell({ children, user }: CRMShellProps) {
     router.replace("/login");
   };
 
+  useEffect(() => {
+    const storageKey = `crm-theme:${user.id}`;
+    const savedTheme = window.localStorage.getItem(storageKey) as "light" | "dark" | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+    }
+  }, [setTheme, user.id]);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    window.localStorage.setItem(`crm-theme:${user.id}`, nextTheme);
+    setTheme(nextTheme);
+  };
+
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(76,122,255,0.16),transparent_32%),linear-gradient(180deg,#f8fafc_0%,#eef2ff_100%)] text-slate-900">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-6 px-4 py-4 lg:flex-row lg:px-6">
-        <aside className="w-full rounded-[28px] border border-white/60 bg-slate-950 px-6 py-6 text-white shadow-[0_30px_80px_rgba(15,23,42,0.28)] lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)] lg:w-[320px]">
+    <div className="min-h-screen text-[var(--text-main)]">
+      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-3 py-3 lg:flex-row lg:px-5">
+        <aside
+          className="w-full rounded-[22px] border px-5 py-5 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-[278px]"
+          style={{
+            background: "var(--sidebar)",
+            borderColor: "rgba(255,255,255,0.08)",
+            color: "#f8fafc",
+            boxShadow: "0 18px 40px rgba(2, 6, 23, 0.22)",
+          }}
+        >
           <div className="flex h-full flex-col">
             <div>
-              <div className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">
+              <div className="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">
                 Planitt CRM
               </div>
-              <div className="mt-6 rounded-3xl bg-white/5 p-5 ring-1 ring-white/10">
-                <p className="text-sm text-slate-400">Signed in as</p>
-                <h1 className="mt-1 text-2xl font-semibold">{user.name}</h1>
+              <div className="mt-5 rounded-[18px] bg-white/5 p-4 ring-1 ring-white/10">
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Signed in as</p>
+                <h1 className="mt-2 text-xl font-semibold">{user.name}</h1>
                 <p className="mt-1 text-sm text-slate-300">{user.email}</p>
-                <span className="mt-4 inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-medium text-emerald-200">
+                <span className="mt-3 inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-[11px] font-medium text-emerald-200">
                   {roleLabel[user.role]}
                 </span>
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="mt-4 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+                >
+                  <span>{theme === "light" ? "Light mode" : "Dark mode"}</span>
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                    Switch
+                  </span>
+                </button>
               </div>
             </div>
 
-            <nav className="mt-8 space-y-2">
+            <nav className="mt-6 space-y-1.5">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
 
@@ -65,9 +103,9 @@ export function CRMShell({ children, user }: CRMShellProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-medium transition ${
+                    className={`flex items-center justify-between rounded-2xl px-4 py-2.5 text-sm font-medium transition ${
                       isActive
-                        ? "bg-white text-slate-950 shadow-lg"
+                        ? "bg-white text-slate-950 shadow-sm"
                         : "text-slate-300 hover:bg-white/10 hover:text-white"
                     }`}
                   >
@@ -80,14 +118,14 @@ export function CRMShell({ children, user }: CRMShellProps) {
               })}
             </nav>
 
-            <div className="mt-auto rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="mt-auto rounded-[18px] border border-white/10 bg-white/5 p-4">
               <p className="text-sm text-slate-300">
-                Keep this workspace simple for your team. Admins manage people, and employees stay focused on daily work.
+                Cleaner workspace, calmer colors, and focused modules for daily operations.
               </p>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
+                className="mt-4 w-full rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
               >
                 Log out
               </button>

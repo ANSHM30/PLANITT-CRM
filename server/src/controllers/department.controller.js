@@ -1,4 +1,5 @@
 import prisma from "../config/db.js";
+import { emitCRMEvent } from "../socket.js";
 
 export async function getDepartments(_req, res) {
   try {
@@ -67,6 +68,11 @@ export async function createDepartment(req, res) {
           },
         },
       },
+    });
+
+    emitCRMEvent("org:updated", {
+      type: "department_created",
+      departmentId: department.id,
     });
 
     return res.status(201).json(department);

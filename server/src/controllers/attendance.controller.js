@@ -1,4 +1,5 @@
 import prisma from "../config/db.js";
+import { emitCRMEvent } from "../socket.js";
 
 export async function checkIn(req, res) {
   try {
@@ -18,6 +19,12 @@ export async function checkIn(req, res) {
         checkIn: new Date(),
         date: new Date(),
       },
+    });
+
+    emitCRMEvent("attendance:updated", {
+      userId,
+      type: "checkin",
+      attendanceId: attendance.id,
     });
 
     return res.status(201).json(attendance);
@@ -42,6 +49,12 @@ export async function checkOut(req, res) {
     const updated = await prisma.attendance.update({
       where: { id: record.id },
       data: { checkOut: new Date() },
+    });
+
+    emitCRMEvent("attendance:updated", {
+      userId,
+      type: "checkout",
+      attendanceId: updated.id,
     });
 
     return res.json(updated);

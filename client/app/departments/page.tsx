@@ -1,11 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost } from "@/lib/api";
 import type { CRMUser, Department } from "@/types/crm";
+
+function Surface({ children }: { children: ReactNode }) {
+  return (
+    <section
+      className="rounded-[20px] border p-5"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
+      {children}
+    </section>
+  );
+}
 
 export default function DepartmentsPage() {
   const { user, loading: sessionLoading } = useSession({
@@ -24,17 +40,25 @@ export default function DepartmentsPage() {
     headId: "",
   });
 
+  const fieldStyle = {
+    borderColor: "var(--border)",
+    background: "var(--surface-soft)",
+    color: "var(--text-main)",
+  } as const;
+
+  const loadData = async () => {
+    const [departmentData, userData] = await Promise.all([
+      apiGet<Department[]>("/departments"),
+      apiGet<CRMUser[]>("/users"),
+    ]);
+    setDepartments(departmentData);
+    setLeaders(userData.filter((member) => ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role)));
+  };
+
   useEffect(() => {
-    async function loadData() {
+    async function fetchData() {
       try {
-        const [departmentData, userData] = await Promise.all([
-          apiGet<Department[]>("/departments"),
-          apiGet<CRMUser[]>("/users"),
-        ]);
-        setDepartments(departmentData);
-        setLeaders(
-          userData.filter((member) => ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role))
-        );
+        await loadData();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load departments");
       } finally {
@@ -43,9 +67,13 @@ export default function DepartmentsPage() {
     }
 
     if (user) {
-      void loadData();
+      void fetchData();
     }
   }, [user]);
+
+  useRealtimeRefresh(user, ["org:updated"], async () => {
+    await loadData();
+  });
 
   const createDepartment = async () => {
     try {
@@ -59,8 +87,7 @@ export default function DepartmentsPage() {
         description: "",
         headId: "",
       });
-      const data = await apiGet<Department[]>("/departments");
-      setDepartments(data);
+      await loadData();
       setNotice("Department created successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create department");
@@ -75,41 +102,44 @@ export default function DepartmentsPage() {
 
   return (
     <CRMShell user={user}>
-      <div className="space-y-6">
-        <section className="rounded-[34px] border border-white/70 bg-white/85 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.10)] backdrop-blur">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+      <div className="space-y-4">
+        <Surface>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
             Organization design
           </p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--text-main)]">
             Departments
           </h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-500">
-            Structure the company into technical, marketing, research, and operations teams, then assign ownership clearly.
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">
+            Structure the company into technical, marketing, research, and operations teams with clearer ownership.
           </p>
-        </section>
+        </Surface>
 
-        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">
+        <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+          <Surface>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
               Create department
             </p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Add a new business unit</h2>
+            <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">Add a new business unit</h2>
 
-            <div className="mt-6 grid gap-4">
+            <div className="mt-5 grid gap-4">
               <input
-                className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                className="h-12 rounded-2xl border px-4 outline-none"
+                style={fieldStyle}
                 placeholder="Department name"
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
               />
               <input
-                className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 uppercase outline-none focus:border-slate-950"
+                className="h-12 rounded-2xl border px-4 uppercase outline-none"
+                style={fieldStyle}
                 placeholder="Code (e.g. TECH)"
                 value={form.code}
                 onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))}
               />
               <textarea
-                className="min-h-28 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-950"
+                className="min-h-28 rounded-2xl border px-4 py-3 outline-none"
+                style={fieldStyle}
                 placeholder="Description"
                 value={form.description}
                 onChange={(event) =>
@@ -117,7 +147,8 @@ export default function DepartmentsPage() {
                 }
               />
               <select
-                className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                className="h-12 rounded-2xl border px-4 outline-none"
+                style={fieldStyle}
                 value={form.headId}
                 onChange={(event) => setForm((current) => ({ ...current, headId: event.target.value }))}
               >
@@ -136,58 +167,63 @@ export default function DepartmentsPage() {
                 type="button"
                 disabled={creating}
                 onClick={() => void createDepartment()}
-                className="h-12 rounded-2xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+                className="h-12 rounded-2xl text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-70"
+                style={{ background: "var(--accent-strong)" }}
               >
                 {creating ? "Creating..." : "Create department"}
               </button>
             </div>
-          </section>
+          </Surface>
 
-          <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
+          <Surface>
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
                   Current structure
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">Department list</h2>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">Department list</h2>
               </div>
-              <span className="text-sm text-slate-500">{departments.length} departments</span>
+              <span className="text-sm text-[var(--text-soft)]">{departments.length} departments</span>
             </div>
 
-            {dataLoading ? <p className="mt-6 text-sm text-slate-500">Loading departments...</p> : null}
+            {dataLoading ? <p className="mt-6 text-sm text-[var(--text-soft)]">Loading departments...</p> : null}
 
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               {departments.map((department) => (
                 <article
                   key={department.id}
-                  className="rounded-[24px] border border-slate-200 bg-slate-50 p-5"
+                  className="rounded-[18px] border p-4"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
                         {department.code}
                       </p>
-                      <h3 className="mt-2 text-xl font-semibold text-slate-950">
+                      <h3 className="mt-2 text-lg font-semibold text-[var(--text-main)]">
                         {department.name}
                       </h3>
                     </div>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                    <span
+                      className="rounded-full px-3 py-1 text-xs font-semibold"
+                      style={{ background: "var(--surface)", color: "var(--text-soft)" }}
+                    >
                       {department._count?.users ?? 0} members
                     </span>
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-500">
+                  <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
                     {department.description || "No description added yet."}
                   </p>
-                  <p className="mt-4 text-xs uppercase tracking-[0.18em] text-slate-400">
+                  <p className="mt-4 text-xs uppercase tracking-[0.18em] text-[var(--text-faint)]">
                     Head
                   </p>
-                  <p className="mt-1 text-sm font-medium text-slate-700">
+                  <p className="mt-1 text-sm font-medium text-[var(--text-main)]">
                     {department.head?.name || "Not assigned"}
                   </p>
                 </article>
               ))}
             </div>
-          </section>
+          </Surface>
         </div>
       </div>
     </CRMShell>

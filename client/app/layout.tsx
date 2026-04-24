@@ -1,4 +1,6 @@
 import "../styles/globals.css";
+import { SocketProvider } from "@/components/providers/socket-provider";
+import { ThemeProvider } from "@/components/providers/theme-provider";
 import type { Metadata } from "next";
 import { Manrope } from "next/font/google";
 
@@ -17,7 +19,11 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${manrope.variable} font-sans antialiased`}>{children}</body>
+      <body className={`${manrope.variable} font-sans antialiased`}>
+        <ThemeProvider>
+          <SocketProvider>{children}</SocketProvider>
+        </ThemeProvider>
+      </body>
     </html>
   );
 }

@@ -5,10 +5,19 @@ type StatePanelProps = {
 
 export function StatePanel({ title, description }: StatePanelProps) {
   return (
-    <div className="flex min-h-[40vh] items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/80 p-8 text-center shadow-[0_20px_80px_rgba(15,23,42,0.08)] backdrop-blur">
+    <div
+      className="flex min-h-[32vh] items-center justify-center rounded-[20px] border p-6 text-center"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
       <div className="max-w-md">
-        <h2 className="text-2xl font-semibold text-slate-900">{title}</h2>
-        {description ? <p className="mt-3 text-sm leading-6 text-slate-500">{description}</p> : null}
+        <h2 className="text-xl font-semibold text-[var(--text-main)]">{title}</h2>
+        {description ? (
+          <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">{description}</p>
+        ) : null}
       </div>
     </div>
   );

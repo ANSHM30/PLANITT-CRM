@@ -16,6 +16,27 @@ export type Department = {
   };
 };
 
+export type Project = {
+  id: string;
+  name: string;
+  description?: string | null;
+  departmentId: string;
+  department: Department;
+  owner?: {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+  } | null;
+  progress: number;
+  taskCounts: {
+    total: number;
+    todo: number;
+    inProgress: number;
+    done: number;
+  };
+};
+
 export type CRMUser = {
   id: string;
   name: string;
@@ -49,7 +70,33 @@ export type Task = {
   assignments: Array<{
     id: string;
     userId: string;
-    user: AssignedUser;
+      user: AssignedUser;
+  }>;
+  checklistItems: Array<{
+    id: string;
+    title: string;
+    completed: boolean;
+    completedAt?: string | null;
+  }>;
+  issues: Array<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    managerResponse?: string | null;
+    reporter: {
+      id: string;
+      name: string;
+      email: string;
+      role: UserRole;
+    };
+    resolvedBy?: {
+      id: string;
+      name: string;
+      email: string;
+      role: UserRole;
+    } | null;
+    createdAt?: string;
   }>;
 };
 
@@ -79,6 +126,36 @@ export type AdminDashboardSummary = {
     averageProgress: number;
   }>;
   recentTasks: Task[];
+  analytics: {
+    attendanceHeatmap: Array<{
+      date: string;
+      label: string;
+      value: number;
+      intensity: number;
+    }>;
+    workingHoursTrend: Array<{
+      date: string;
+      label: string;
+      hours: number;
+    }>;
+    taskProgressTrend: Array<{
+      date: string;
+      label: string;
+      created: number;
+      completed: number;
+      avgProgress: number;
+    }>;
+    updatesFeed: Array<{
+      id: string;
+      title: string;
+      message: string;
+      authorName: string;
+      authorRole: UserRole;
+      taskTitle?: string | null;
+      reporterName?: string | null;
+      createdAt: string;
+    }>;
+  };
 };
 
 export type EmployeeDashboardSummary = {
@@ -90,6 +167,36 @@ export type EmployeeDashboardSummary = {
     checkedIn: boolean;
   };
   recentTasks: Task[];
+  analytics: {
+    attendanceHeatmap: Array<{
+      date: string;
+      label: string;
+      value: number;
+      intensity: number;
+    }>;
+    workingHoursTrend: Array<{
+      date: string;
+      label: string;
+      hours: number;
+    }>;
+    taskProgressTrend: Array<{
+      date: string;
+      label: string;
+      created: number;
+      completed: number;
+      avgProgress: number;
+    }>;
+    updatesFeed: Array<{
+      id: string;
+      title: string;
+      message: string;
+      authorName: string;
+      authorRole: UserRole;
+      taskTitle?: string | null;
+      reporterName?: string | null;
+      createdAt: string;
+    }>;
+  };
 };
 
 export type DashboardSummary = AdminDashboardSummary | EmployeeDashboardSummary;

@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { AttendanceCard } from "@/components/modules/attendance-card";
 import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet } from "@/lib/api";
-import type { DashboardSummary } from "@/types/crm";
+import type { DashboardSummary, EmployeeDashboardSummary } from "@/types/crm";
 
-function StatCard({
+type DashboardTab = "overview" | "analytics" | "activity";
+
+function CompactStat({
   label,
   value,
   helper,
@@ -19,51 +22,212 @@ function StatCard({
   helper: string;
 }) {
   return (
-    <div className="rounded-[28px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-      <p className="text-sm font-medium text-slate-500">{label}</p>
-      <h3 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">{value}</h3>
-      <p className="mt-3 text-sm text-slate-500">{helper}</p>
+    <div
+      className="rounded-[18px] border px-4 py-4"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+        {label}
+      </p>
+      <div className="mt-2 flex items-end justify-between gap-3">
+        <h3 className="text-3xl font-semibold text-[var(--text-main)]">{value}</h3>
+        <p className="max-w-[10rem] text-right text-xs text-[var(--text-soft)]">{helper}</p>
+      </div>
     </div>
   );
 }
 
-function GraphCard({
+function Surface({ children }: { children: React.ReactNode }) {
+  return (
+    <section
+      className="rounded-[20px] border px-5 py-5"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
+      {children}
+    </section>
+  );
+}
+
+function PerformanceBars({
   title,
   subtitle,
   items,
 }: {
   title: string;
   subtitle: string;
-  items: Array<{
-    label: string;
-    value: number;
-    helper: string;
-  }>;
+  items: Array<{ label: string; value: number; helper: string }>;
 }) {
   return (
-    <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-      <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-slate-500">{subtitle}</p>
-      <div className="mt-6 space-y-4">
+    <Surface>
+      <div className="mb-5">
+        <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+        <p className="mt-1 text-sm text-[var(--text-soft)]">{subtitle}</p>
+      </div>
+      <div className="space-y-4">
         {items.map((item) => (
           <div key={item.label}>
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="font-semibold text-slate-900">{item.label}</p>
-                <p className="text-xs text-slate-500">{item.helper}</p>
+                <p className="text-sm font-medium text-[var(--text-main)]">{item.label}</p>
+                <p className="text-xs text-[var(--text-soft)]">{item.helper}</p>
               </div>
-              <span className="text-sm font-semibold text-slate-900">{item.value}%</span>
+              <span className="text-sm font-semibold text-[var(--text-main)]">{item.value}%</span>
             </div>
-            <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+            <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: "var(--surface-soft)" }}>
               <div
-                className="h-full rounded-full bg-gradient-to-r from-slate-950 via-blue-600 to-emerald-500"
-                style={{ width: `${item.value}%` }}
+                className="h-full rounded-full"
+                style={{
+                  width: `${item.value}%`,
+                  background:
+                    "linear-gradient(90deg, var(--accent-strong) 0%, var(--accent) 55%, var(--success) 100%)",
+                }}
               />
             </div>
           </div>
         ))}
       </div>
-    </section>
+    </Surface>
+  );
+}
+
+function HeatmapGrid({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: Array<{ date: string; label: string; value: number; intensity: number }>;
+}) {
+  return (
+    <Surface>
+      <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">{subtitle}</p>
+      <div className="mt-4 grid grid-cols-7 gap-2">
+        {items.map((item) => (
+          <div key={item.date} className="space-y-1 text-center">
+            <div
+              className="h-8 rounded-md border"
+              title={`${item.label}: ${item.value}`}
+              style={{
+                borderColor: "var(--border)",
+                background: `linear-gradient(180deg, color-mix(in srgb, var(--accent) ${Math.max(
+                  10,
+                  item.intensity
+                )}%, var(--surface-soft)), var(--surface-soft))`,
+              }}
+            />
+            <p className="text-[10px] text-[var(--text-faint)]">{item.label.split(" ")[1] ?? item.label}</p>
+          </div>
+        ))}
+      </div>
+    </Surface>
+  );
+}
+
+function TrendBars({
+  title,
+  subtitle,
+  items,
+  keyName,
+  color,
+}: {
+  title: string;
+  subtitle: string;
+  items: Array<Record<string, number | string>>;
+  keyName: string;
+  color: string;
+}) {
+  const maxValue = Math.max(
+    1,
+    ...items.map((item) => Number(item[keyName] ?? 0))
+  );
+
+  return (
+    <Surface>
+      <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">{subtitle}</p>
+      <div className="mt-4 grid grid-cols-7 gap-2">
+        {items.map((item) => {
+          const value = Number(item[keyName] ?? 0);
+          const height = Math.max(6, Math.round((value / maxValue) * 56));
+          return (
+            <div key={`${item.date}-${keyName}`} className="flex flex-col items-center gap-1">
+              <div className="flex h-16 items-end">
+                <div
+                  className="w-5 rounded-md"
+                  style={{
+                    height,
+                    background: color,
+                  }}
+                  title={`${item.label}: ${value}`}
+                />
+              </div>
+              <p className="text-[10px] text-[var(--text-faint)]">
+                {String(item.label).split(" ")[1] ?? item.label}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </Surface>
+  );
+}
+
+function UpdateFeed({
+  title,
+  items,
+}: {
+  title: string;
+  items: Array<{
+    id: string;
+    title: string;
+    message: string;
+    authorName: string;
+    authorRole: string;
+    taskTitle?: string | null;
+    createdAt: string;
+  }>;
+}) {
+  return (
+    <Surface>
+      <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+      <div className="mt-4 space-y-3">
+        {items.length ? (
+          items.map((item) => (
+            <article
+              key={item.id}
+              className="rounded-2xl border px-4 py-3"
+              style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[var(--text-main)]">{item.title}</p>
+                <span className="text-xs text-[var(--text-faint)]">
+                  {new Date(item.createdAt).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              </div>
+              <p className="mt-2 line-clamp-2 text-sm text-[var(--text-soft)]">{item.message}</p>
+              <p className="mt-2 text-xs text-[var(--text-faint)]">
+                {item.authorName} ({item.authorRole}) {item.taskTitle ? `- ${item.taskTitle}` : ""}
+              </p>
+            </article>
+          ))
+        ) : (
+          <p className="text-sm text-[var(--text-soft)]">No recent leadership updates.</p>
+        )}
+      </div>
+    </Surface>
   );
 }
 
@@ -71,6 +235,7 @@ export default function DashboardPage() {
   const { user, loading } = useSession();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
 
   useEffect(() => {
     async function loadSummary() {
@@ -87,6 +252,55 @@ export default function DashboardPage() {
     }
   }, [user]);
 
+  useRealtimeRefresh(
+    user,
+    ["task:updated", "attendance:updated", "org:updated", "issue:updated", "project:updated"],
+    () => {
+      if (!user) {
+        return;
+      }
+
+      return apiGet<DashboardSummary>("/dashboard/summary")
+        .then(setSummary)
+        .catch(() => undefined);
+    }
+  );
+
+  const leadershipView = summary?.scope === "admin" || summary?.scope === "superadmin";
+
+  const overviewStats = useMemo(() => {
+    if (!summary) {
+      return [];
+    }
+
+    if (summary.scope === "superadmin") {
+      return [
+        { label: "Departments", value: summary.metrics.totalDepartments, helper: "Active business units" },
+        { label: "Managers", value: summary.metrics.totalManagers, helper: "Leadership capacity" },
+        { label: "Employees", value: summary.metrics.totalEmployees, helper: "Core team members" },
+        { label: "Interns", value: summary.metrics.totalInterns, helper: "Current intern strength" },
+      ];
+    }
+
+    if (summary.scope === "admin") {
+      return [
+        { label: "Employees", value: summary.metrics.totalEmployees, helper: "Employees and managers" },
+        { label: "Interns", value: summary.metrics.totalInterns, helper: "Intern tracking" },
+        { label: "Tasks", value: summary.metrics.totalTasks, helper: "All organization tasks" },
+        { label: "Attendance", value: summary.metrics.activeAttendance, helper: "Checked in right now" },
+      ];
+    }
+
+    const employeeMetrics = (summary as EmployeeDashboardSummary).metrics;
+
+    return [
+      { label: "Assigned", value: employeeMetrics.myTasks, helper: "Tasks in your queue" },
+      { label: "Pending", value: employeeMetrics.pendingTasks, helper: "Open work items" },
+      { label: "Done", value: employeeMetrics.completedTasks, helper: "Completed items" },
+      { label: "Status", value: employeeMetrics.checkedIn ? "Active" : "Offline", helper: "Attendance state" },
+    ];
+  }, [summary]);
+
   if (loading || !user) {
     return <StatePanel title="Loading workspace" description="Preparing your CRM dashboard." />;
   }
@@ -99,227 +313,188 @@ export default function DashboardPage() {
     );
   }
 
-  const leadershipView = summary.scope === "admin" || summary.scope === "superadmin";
+  const tabs: Array<{ id: DashboardTab; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "analytics", label: "Analytics" },
+    { id: "activity", label: "Activity" },
+  ];
 
   return (
     <CRMShell user={user}>
-      <div className="space-y-6">
-        <section className="rounded-[34px] border border-white/70 bg-white/85 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.10)] backdrop-blur">
-          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+      <div className="space-y-4">
+        <Surface>
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-faint)]">
                 {summary.scope === "superadmin"
-                  ? "CEO dashboard"
+                  ? "CEO Dashboard"
                   : summary.scope === "admin"
-                    ? "Admin dashboard"
-                    : "Employee dashboard"}
+                    ? "Admin Dashboard"
+                    : "Personal Workspace"}
               </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 lg:text-5xl">
-                Welcome back, {user.name.split(" ")[0]}.
+              <h1 className="mt-2 text-3xl font-semibold text-[var(--text-main)]">
+                Welcome back, {user.name.split(" ")[0]}
               </h1>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-500">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">
                 {leadershipView
-                  ? "Monitor team performance, onboard employees and interns, and keep work distribution clear across the organization."
-                  : "See your assigned work, update progress quickly, and keep your daily execution simple."}
+                  ? "Real-time team analytics with attendance, working-hours, progress trends, and leadership updates."
+                  : "Track your attendance, working hours, and progress trends in one focused dashboard."}
               </p>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-3xl bg-slate-950 px-5 py-4 text-white">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Access</p>
-                <p className="mt-2 text-lg font-semibold">
-                  {summary.scope === "superadmin"
-                    ? "Full organization visibility"
-                    : summary.scope === "admin"
-                      ? "Team management enabled"
-                      : "Personal workspace"}
-                </p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Focus</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">
-                  {leadershipView ? "People + delivery" : "Tasks + attendance"}
-                </p>
+            <div
+              className="inline-flex items-center gap-1 rounded-2xl border p-1"
+              style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+            >
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className="rounded-xl px-4 py-2 text-sm font-medium transition"
+                  style={
+                    activeTab === tab.id
+                      ? {
+                          background: "var(--accent)",
+                          color: "#ffffff",
+                        }
+                      : {
+                          color: "var(--text-soft)",
+                        }
+                  }
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Surface>
+
+        {activeTab === "overview" ? (
+          <div className="space-y-4">
+            <section className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+              {overviewStats.map((stat) => (
+                <CompactStat key={stat.label} label={stat.label} value={stat.value} helper={stat.helper} />
+              ))}
+            </section>
+
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <Surface>
+                <div className="mb-4">
+                  <p className="text-sm font-semibold text-[var(--text-main)]">
+                    {leadershipView ? "Recent execution" : "Your latest tasks"}
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--text-soft)]">
+                    {leadershipView
+                      ? "A focused snapshot of active work."
+                      : "A focused snapshot of your latest assignments."}
+                  </p>
+                </div>
+                {summary.recentTasks.length ? (
+                  <TaskList tasks={summary.recentTasks} user={user} />
+                ) : (
+                  <StatePanel title="No tasks yet" description="Work items will appear here once tasks are assigned." />
+                )}
+              </Surface>
+
+              <div className="space-y-4">
+                <AttendanceCard
+                  initialCheckedIn={summary.scope === "employee" ? summary.metrics.checkedIn : false}
+                />
+                <UpdateFeed
+                  title="Brief updates from manager/admin"
+                  items={summary.analytics.updatesFeed.slice(0, 4)}
+                />
               </div>
             </div>
           </div>
-        </section>
+        ) : null}
 
-        <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-          {summary.scope === "admin" ? (
-            <>
-              <StatCard
-                label="Employees"
-                value={summary.metrics.totalEmployees}
-                helper="Current employee and manager count"
-              />
-              <StatCard
-                label="Interns"
-                value={summary.metrics.totalInterns}
-                helper="Track internship intake separately"
-              />
-              <StatCard
-                label="Total Tasks"
-                value={summary.metrics.totalTasks}
-                helper="All tasks across the CRM workspace"
-              />
-              <StatCard
-                label="Checked In"
-                value={summary.metrics.activeAttendance}
-                helper="Live attendance activity right now"
-              />
-            </>
-          ) : summary.scope === "superadmin" ? (
-            <>
-              <StatCard
-                label="Departments"
-                value={summary.metrics.totalDepartments}
-                helper="Total active departments in the company"
-              />
-              <StatCard
-                label="Managers"
-                value={summary.metrics.totalManagers}
-                helper="Leadership capacity across teams"
-              />
-              <StatCard
-                label="Employees"
-                value={summary.metrics.totalEmployees}
-                helper="All permanent team members including admins"
-              />
-              <StatCard
-                label="Interns"
-                value={summary.metrics.totalInterns}
-                helper="Track internship capacity separately"
-              />
-            </>
-          ) : summary.scope === "employee" ? (
-            <>
-              <StatCard
-                label="Assigned Tasks"
-                value={summary.metrics.myTasks}
-                helper="Everything currently assigned to you"
-              />
-              <StatCard
-                label="Pending"
-                value={summary.metrics.pendingTasks}
-                helper="Open items that still need attention"
-              />
-              <StatCard
-                label="Completed"
-                value={summary.metrics.completedTasks}
-                helper="Finished tasks in your personal queue"
-              />
-              <StatCard
-                label="Attendance"
-                value={summary.metrics.checkedIn ? "Active" : "Offline"}
-                helper="Your current attendance status"
-              />
-            </>
-          ) : null}
-        </section>
-
-        <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-          <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-            <div className="mb-5 flex items-end justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Recent work
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                  {leadershipView ? "Latest team tasks" : "Your recent tasks"}
-                </h2>
+        {activeTab === "analytics" ? (
+          <div className="space-y-4">
+            {summary.scope !== "employee" ? (
+              <div className="grid gap-4 xl:grid-cols-2">
+                <PerformanceBars
+                  title="Department performance"
+                  subtitle="Average progress across departments."
+                  items={summary.departmentPerformance.map((department) => ({
+                    label: department.departmentName,
+                    value: department.averageProgress,
+                    helper: `${department.completed}/${department.totalAssigned} tasks completed`,
+                  }))}
+                />
+                <PerformanceBars
+                  title="Role performance"
+                  subtitle="Average progress by organizational role."
+                  items={summary.rolePerformance.map((role) => ({
+                    label: role.role,
+                    value: role.averageProgress,
+                    helper: `${role.completed}/${role.totalAssigned} tasks completed`,
+                  }))}
+                />
               </div>
+            ) : null}
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <HeatmapGrid
+                title={summary.scope === "employee" ? "Attendance heatmap" : "Team attendance heatmap"}
+                subtitle={summary.scope === "employee" ? "Your attendance intensity over recent days." : "Daily participation trend across your organization."}
+                items={summary.analytics.attendanceHeatmap}
+              />
+              <TrendBars
+                title={summary.scope === "employee" ? "Working hours trend" : "Average working hours trend"}
+                subtitle="Daily hours trend for quick workload analysis."
+                items={summary.analytics.workingHoursTrend}
+                keyName="hours"
+                color="linear-gradient(180deg, var(--accent), var(--accent-strong))"
+              />
             </div>
 
-            {summary.recentTasks.length ? (
-              <TaskList tasks={summary.recentTasks} user={user} />
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
-                No tasks yet. Start by adding work from the tasks page.
-              </div>
-            )}
-          </section>
+            <TrendBars
+              title="Task progress trend"
+              subtitle="Daily task completion movement based on recent updates."
+              items={summary.analytics.taskProgressTrend}
+              keyName="avgProgress"
+              color="linear-gradient(180deg, var(--success), var(--accent))"
+            />
+          </div>
+        ) : null}
 
-          <div className="space-y-6">
+        {activeTab === "activity" ? (
+          <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
             {summary.scope !== "employee" ? (
-              <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">
-                  Department health
-                </p>
-                <div className="mt-4 space-y-3">
+              <Surface>
+                <p className="text-sm font-semibold text-[var(--text-main)]">Department roster</p>
+                <div className="mt-4 space-y-2.5">
                   {summary.departmentBreakdown.map((department) => (
                     <div
                       key={department.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
+                      className="rounded-2xl border px-4 py-3"
+                      style={{
+                        background: "var(--surface-soft)",
+                        borderColor: "var(--border)",
+                      }}
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="font-semibold text-slate-900">{department.name}</p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-sm font-medium text-[var(--text-main)]">{department.name}</p>
+                          <p className="text-xs text-[var(--text-soft)]">
                             Head: {department.head?.name || "Not assigned"}
                           </p>
                         </div>
-                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                        <span className="text-xs font-semibold text-[var(--text-soft)]">
                           {department._count?.users ?? 0} members
                         </span>
                       </div>
                     </div>
                   ))}
                 </div>
-              </section>
+              </Surface>
             ) : null}
 
-            {summary.scope !== "employee" ? (
-              <GraphCard
-                title="Department performance"
-                subtitle="Average task completion progress by department."
-                items={summary.departmentPerformance.map((department) => ({
-                  label: department.departmentName,
-                  value: department.averageProgress,
-                  helper: `${department.completed}/${department.totalAssigned} tasks completed`,
-                }))}
-              />
-            ) : null}
-
-            {summary.scope !== "employee" ? (
-              <GraphCard
-                title="Role performance"
-                subtitle="Average task progress by leadership and staff roles."
-                items={summary.rolePerformance.map((role) => ({
-                  label: role.role,
-                  value: role.averageProgress,
-                  helper: `${role.completed}/${role.totalAssigned} tasks completed`,
-                }))}
-              />
-            ) : null}
-
-            <AttendanceCard
-              initialCheckedIn={summary.scope === "employee" ? summary.metrics.checkedIn : false}
-            />
-
-            <section className="rounded-[30px] border border-slate-200/70 bg-slate-950 p-6 text-white shadow-[0_20px_80px_rgba(15,23,42,0.16)]">
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">
-                Quick guide
-              </p>
-              <ul className="mt-4 space-y-4 text-sm leading-6 text-slate-300">
-                {leadershipView ? (
-                  <>
-                    <li>Create employees and interns from the Team page.</li>
-                    <li>Assign employees or interns to managers and departments.</li>
-                    <li>Assign new work from the Tasks page and monitor completion here.</li>
-                    <li>Use attendance to understand who is active during the day.</li>
-                  </>
-                ) : (
-                  <>
-                    <li>Use Tasks to update progress whenever work moves forward.</li>
-                    <li>Check in when you start and check out when the day ends.</li>
-                    <li>Keep your assigned work list clean and current.</li>
-                  </>
-                )}
-              </ul>
-            </section>
+            <UpdateFeed title="Leadership update feed" items={summary.analytics.updatesFeed} />
           </div>
-        </div>
+        ) : null}
       </div>
     </CRMShell>
   );

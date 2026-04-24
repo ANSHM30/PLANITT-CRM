@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import prisma from "../config/db.js";
+import { emitCRMEvent } from "../socket.js";
 
 export async function getUsers(_req, res) {
   try {
@@ -140,6 +141,12 @@ export async function createUser(req, res) {
       },
     });
 
+    emitCRMEvent("org:updated", {
+      type: "user_created",
+      userId: user.id,
+      role: user.role,
+    });
+
     return res.status(201).json(user);
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -226,6 +233,14 @@ export async function updateUserAssignment(req, res) {
         },
         createdAt: true,
       },
+    });
+
+    emitCRMEvent("org:updated", {
+      type: "user_assignment_updated",
+      userId: user.id,
+      role: user.role,
+      managerId: user.manager?.id ?? null,
+      departmentId: user.department?.id ?? null,
     });
 
     return res.json(user);

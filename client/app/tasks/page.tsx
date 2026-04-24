@@ -1,13 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost } from "@/lib/api";
 import { isAdminRole } from "@/lib/dashboard";
 import type { CRMUser, Task } from "@/types/crm";
+
+function Surface({ children }: { children: ReactNode }) {
+  return (
+    <section
+      className="rounded-[20px] border p-5"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
+      {children}
+    </section>
+  );
+}
 
 export default function TasksPage() {
   const { user, loading: sessionLoading } = useSession();
@@ -22,7 +38,14 @@ export default function TasksPage() {
     description: "",
     userIds: [] as string[],
     progress: 0,
+    checklistText: "",
   });
+
+  const fieldStyle = {
+    borderColor: "var(--border)",
+    background: "var(--surface-soft)",
+    color: "var(--text-main)",
+  } as const;
 
   const loadTasks = async () => {
     const data = await apiGet<Task[]>("/tasks");
@@ -51,6 +74,15 @@ export default function TasksPage() {
     }
   }, [user]);
 
+  useRealtimeRefresh(user, ["task:updated", "issue:updated", "org:updated"], async () => {
+    await loadTasks();
+
+    if (user && isAdminRole(user.role)) {
+      const users = await apiGet<CRMUser[]>("/users");
+      setTeam(users);
+    }
+  });
+
   const handleAssigneeToggle = (userId: string) => {
     setForm((current) => ({
       ...current,
@@ -65,8 +97,17 @@ export default function TasksPage() {
       setCreating(true);
       setError("");
       setNotice("");
-      await apiPost("/tasks", form);
-      setForm({ title: "", description: "", userIds: [], progress: 0 });
+      await apiPost("/tasks", {
+        title: form.title,
+        description: form.description,
+        userIds: form.userIds,
+        progress: form.progress,
+        checklistItems: form.checklistText
+          .split("\n")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      });
+      setForm({ title: "", description: "", userIds: [], progress: 0, checklistText: "" });
       setNotice("Task created successfully.");
       await loadTasks();
     } catch (err) {
@@ -82,46 +123,66 @@ export default function TasksPage() {
 
   return (
     <CRMShell user={user}>
-      <div className="space-y-6">
-        <section className="rounded-[34px] border border-white/70 bg-white/85 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.10)] backdrop-blur">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">Task workspace</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">Tasks</h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-500">
-            {isAdminRole(user.role)
-              ? "Create and assign work to keep the team moving clearly."
-              : "Stay focused on your assigned tasks and update progress as work moves ahead."}
+      <div className="space-y-4">
+        <Surface>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+            Task workspace
           </p>
-        </section>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--text-main)]">Tasks</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">
+            {isAdminRole(user.role)
+              ? "Create and assign work in a focused workspace without oversized panels."
+              : "Review assignments, update progress, and report blockers from one clean view."}
+          </p>
+        </Surface>
 
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
           {isAdminRole(user.role) ? (
-            <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">Create task</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Assign work clearly</h2>
+            <Surface>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+                Create task
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">Assign work clearly</h2>
 
-              <div className="mt-6 grid gap-4">
+              <div className="mt-5 grid gap-4">
                 <input
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   placeholder="Task title"
                   value={form.title}
                   onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
                 />
                 <textarea
-                  className="min-h-28 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-slate-950"
+                  className="min-h-28 rounded-2xl border px-4 py-3 outline-none"
+                  style={fieldStyle}
                   placeholder="Task description"
                   value={form.description}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, description: event.target.value }))
                   }
                 />
+                <textarea
+                  className="min-h-32 rounded-2xl border px-4 py-3 outline-none"
+                  style={fieldStyle}
+                  placeholder={"Checklist items, one per line\nExample:\nCreate first draft\nReview with manager\nSubmit final work"}
+                  value={form.checklistText}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, checklistText: event.target.value }))
+                  }
+                />
 
                 <div>
-                  <p className="text-sm font-medium text-slate-700">Assign to team members</p>
+                  <p className="text-sm font-medium text-[var(--text-main)]">Assign to team members</p>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     {team.map((member) => (
                       <label
                         key={member.id}
-                        className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
+                        className="flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm"
+                        style={{
+                          borderColor: "var(--border)",
+                          background: "var(--surface-soft)",
+                          color: "var(--text-main)",
+                        }}
                       >
                         <input
                           type="checkbox"
@@ -138,8 +199,8 @@ export default function TasksPage() {
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-700">Initial progress</p>
-                    <span className="text-sm font-semibold text-slate-900">{form.progress}%</span>
+                    <p className="text-sm font-medium text-[var(--text-main)]">Initial progress</p>
+                    <span className="text-sm font-semibold text-[var(--text-main)]">{form.progress}%</span>
                   </div>
                   <input
                     type="range"
@@ -164,47 +225,58 @@ export default function TasksPage() {
                   type="button"
                   disabled={creating}
                   onClick={() => void createTask()}
-                  className="h-12 rounded-2xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+                  className="h-12 rounded-2xl text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-70"
+                  style={{ background: "var(--accent-strong)" }}
                 >
                   {creating ? "Creating..." : "Create task"}
                 </button>
               </div>
-            </section>
+            </Surface>
           ) : (
-            <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
-              <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">Personal workflow</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">Keep your queue updated</h2>
-              <p className="mt-4 text-sm leading-6 text-slate-500">
+            <Surface>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+                Personal workflow
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">Keep your queue updated</h2>
+              <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
                 Use this page to review assignments and move work from Todo to In Progress and Done.
               </p>
-            </section>
+            </Surface>
           )}
 
-          <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
+          <Surface>
             <div className="flex items-end justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">Open list</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">Current tasks</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+                  Open list
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">Current tasks</h2>
               </div>
-              <span className="text-sm text-slate-500">{tasks.length} items</span>
+              <span className="text-sm text-[var(--text-soft)]">{tasks.length} items</span>
             </div>
 
-            {loading ? <p className="mt-6 text-sm text-slate-500">Loading tasks...</p> : null}
+            {loading ? <p className="mt-6 text-sm text-[var(--text-soft)]">Loading tasks...</p> : null}
             {!loading && error ? <p className="mt-6 text-sm font-medium text-rose-600">{error}</p> : null}
 
             <div className="mt-6">
               {tasks.length ? (
-                <TaskList tasks={tasks} user={user} onUpdated={loadTasks} />
+                <TaskList tasks={tasks} user={user} team={team} onUpdated={loadTasks} />
               ) : (
-                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-sm text-slate-500">
+                <div
+                  className="rounded-3xl border border-dashed p-8 text-sm"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: "var(--surface-soft)",
+                    color: "var(--text-soft)",
+                  }}
+                >
                   No tasks available yet.
                 </div>
               )}
             </div>
-          </section>
+          </Surface>
         </div>
       </div>
     </CRMShell>
   );
 }
-

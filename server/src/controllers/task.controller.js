@@ -1,16 +1,105 @@
 import prisma from "../config/db.js";
+import { emitCRMEvent } from "../socket.js";
+
+function getTaskInclude() {
+  return {
+    assignments: {
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            departmentId: true,
+          },
+        },
+      },
+    },
+    checklistItems: {
+      orderBy: { createdAt: "asc" },
+    },
+    issues: {
+      orderBy: { createdAt: "desc" },
+      include: {
+        reporter: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        resolvedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    },
+  };
+}
+
+function deriveTaskStateFromChecklist(items) {
+  if (!items.length) {
+    return null;
+  }
+
+  const completed = items.filter((item) => item.completed).length;
+  const progress = Math.round((completed / items.length) * 100);
+  const status = progress >= 100 ? "DONE" : progress > 0 ? "IN_PROGRESS" : "TODO";
+
+  return { progress, status };
+}
+
+async function syncTaskProgress(taskId) {
+  const items = await prisma.taskChecklistItem.findMany({
+    where: { taskId },
+  });
+
+  const derived = deriveTaskStateFromChecklist(items);
+
+  if (!derived) {
+    return prisma.task.findUnique({
+      where: { id: taskId },
+      include: getTaskInclude(),
+    });
+  }
+
+  return prisma.task.update({
+    where: { id: taskId },
+    data: derived,
+    include: getTaskInclude(),
+  });
+}
+
+function isLeadership(role) {
+  return role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER";
+}
 
 export async function createTask(req, res) {
   try {
-    const { title, description, userIds = [], progress = 0 } = req.body;
+    const { title, description, userIds = [], progress = 0, checklistItems = [], projectId } = req.body;
 
     if (!title) {
       return res.status(400).json({ error: "Task title is required" });
     }
 
-    const normalizedProgress = Math.min(100, Math.max(0, Number(progress) || 0));
-    const initialStatus =
-      normalizedProgress >= 100
+    const normalizedChecklistItems = Array.isArray(checklistItems)
+      ? checklistItems
+          .map((item) => `${item ?? ""}`.trim())
+          .filter(Boolean)
+      : [];
+
+    const normalizedProgress = normalizedChecklistItems.length
+      ? 0
+      : Math.min(100, Math.max(0, Number(progress) || 0));
+    const initialStatus = normalizedChecklistItems.length
+      ? "TODO"
+      : normalizedProgress >= 100
         ? "DONE"
         : normalizedProgress > 0
           ? "IN_PROGRESS"
@@ -20,6 +109,7 @@ export async function createTask(req, res) {
       data: {
         title,
         description,
+        ...(projectId ? { projectId } : {}),
         status: initialStatus,
         progress: normalizedProgress,
         assignments: {
@@ -27,22 +117,26 @@ export async function createTask(req, res) {
             userId: id,
           })),
         },
-      },
-      include: {
-        assignments: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-              },
-            },
-          },
+        checklistItems: {
+          create: normalizedChecklistItems.map((item) => ({
+            title: item,
+          })),
         },
       },
+      include: getTaskInclude(),
     });
+
+    emitCRMEvent("task:updated", {
+      type: "task_created",
+      taskId: task.id,
+      projectId: task.projectId ?? null,
+    });
+    if (task.projectId) {
+      emitCRMEvent("project:updated", {
+        type: "project_progress_updated",
+        projectId: task.projectId,
+      });
+    }
 
     return res.status(201).json(task);
   } catch (err) {
@@ -52,7 +146,10 @@ export async function createTask(req, res) {
 
 export async function getTasks(_req, res) {
   try {
-    const where =
+    const projectFilter = _req.query.projectId
+      ? { projectId: _req.query.projectId }
+      : {};
+    const roleWhere =
       _req.user.role === "SUPERADMIN" || _req.user.role === "ADMIN" || _req.user.role === "MANAGER"
         ? {}
         : {
@@ -62,24 +159,15 @@ export async function getTasks(_req, res) {
               },
             },
           };
+    const where = {
+      ...roleWhere,
+      ...projectFilter,
+    };
 
     const tasks = await prisma.task.findMany({
       where,
       orderBy: { createdAt: "desc" },
-      include: {
-        assignments: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-              },
-            },
-          },
-        },
-      },
+      include: getTaskInclude(),
     });
 
     return res.json(tasks);
@@ -90,16 +178,23 @@ export async function getTasks(_req, res) {
 
 export async function updateTaskStatus(req, res) {
   try {
-    const { status, progress } = req.body;
+    const { status, progress, title, description, userIds, checklistItems } = req.body;
 
-    if (!status && typeof progress !== "number") {
-      return res.status(400).json({ error: "Status or progress is required" });
+    const wantsStructureEdit =
+      typeof title === "string" ||
+      typeof description === "string" ||
+      Array.isArray(userIds) ||
+      Array.isArray(checklistItems);
+
+    if (!wantsStructureEdit && !status && typeof progress !== "number") {
+      return res.status(400).json({ error: "Task update payload is empty" });
     }
 
     const existingTask = await prisma.task.findUnique({
       where: { id: req.params.id },
       include: {
         assignments: true,
+        checklistItems: true,
       },
     });
 
@@ -107,14 +202,34 @@ export async function updateTaskStatus(req, res) {
       return res.status(404).json({ error: "Task not found" });
     }
 
+    const isLeader = isLeadership(req.user.role);
     const canUpdate =
-      req.user.role === "SUPERADMIN" ||
-      req.user.role === "ADMIN" ||
-      req.user.role === "MANAGER" ||
+      isLeader ||
       existingTask.assignments.some((assignment) => assignment.userId === req.user.userId);
 
     if (!canUpdate) {
       return res.status(403).json({ error: "You are not allowed to update this task" });
+    }
+
+    if (wantsStructureEdit && !isLeader) {
+      return res.status(403).json({ error: "Only leadership can modify task details" });
+    }
+
+    const normalizedChecklistItems = Array.isArray(checklistItems)
+      ? checklistItems
+          .map((item) => `${item ?? ""}`.trim())
+          .filter(Boolean)
+      : null;
+
+    const willHaveChecklist =
+      normalizedChecklistItems !== null
+        ? normalizedChecklistItems.length > 0
+        : existingTask.checklistItems.length > 0;
+
+    if (willHaveChecklist && typeof progress === "number" && normalizedChecklistItems === null) {
+      return res.status(400).json({
+        error: "Progress is controlled by checklist completion for this task",
+      });
     }
 
     const normalizedProgress =
@@ -134,15 +249,326 @@ export async function updateTaskStatus(req, res) {
           ? "IN_PROGRESS"
           : "TODO");
 
-    const task = await prisma.task.update({
+    const task = await prisma.$transaction(async (tx) => {
+      if (Array.isArray(userIds)) {
+        await tx.taskAssignment.deleteMany({
+          where: { taskId: req.params.id },
+        });
+
+        if (userIds.length) {
+          await tx.taskAssignment.createMany({
+            data: userIds.map((id) => ({
+              taskId: req.params.id,
+              userId: id,
+            })),
+            skipDuplicates: true,
+          });
+        }
+      }
+
+      if (normalizedChecklistItems !== null) {
+        await tx.taskChecklistItem.deleteMany({
+          where: { taskId: req.params.id },
+        });
+
+        if (normalizedChecklistItems.length) {
+          await tx.taskChecklistItem.createMany({
+            data: normalizedChecklistItems.map((item) => ({
+              taskId: req.params.id,
+              title: item,
+            })),
+          });
+        }
+      }
+
+      const taskData = {
+        ...(typeof title === "string" ? { title: title.trim() || existingTask.title } : {}),
+        ...(typeof description === "string" ? { description } : {}),
+        status: normalizedChecklistItems && normalizedChecklistItems.length ? "TODO" : nextStatus,
+        progress: normalizedChecklistItems && normalizedChecklistItems.length ? 0 : normalizedProgress,
+      };
+
+      await tx.task.update({
+        where: { id: req.params.id },
+        data: taskData,
+      });
+
+      if (normalizedChecklistItems !== null && normalizedChecklistItems.length) {
+        return tx.task.findUnique({
+          where: { id: req.params.id },
+          include: getTaskInclude(),
+        });
+      }
+
+      return tx.task.findUnique({
+        where: { id: req.params.id },
+        include: getTaskInclude(),
+      });
+    });
+
+    emitCRMEvent("task:updated", {
+      type: wantsStructureEdit ? "task_modified" : "task_progress_updated",
+      taskId: task.id,
+      projectId: task.projectId ?? null,
+      progress: task.progress,
+      status: task.status,
+    });
+    if (task.projectId) {
+      emitCRMEvent("project:updated", {
+        type: "project_progress_updated",
+        projectId: task.projectId,
+      });
+    }
+
+    return res.json(task);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteTask(req, res) {
+  try {
+    if (!isLeadership(req.user.role)) {
+      return res.status(403).json({ error: "Only leadership can delete tasks" });
+    }
+
+    const existingTask = await prisma.task.findUnique({
       where: { id: req.params.id },
-      data: {
-        status: nextStatus,
-        progress: normalizedProgress,
+      select: {
+        id: true,
+        projectId: true,
       },
     });
 
+    if (!existingTask) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    await prisma.task.delete({
+      where: { id: req.params.id },
+    });
+
+    emitCRMEvent("task:updated", {
+      type: "task_deleted",
+      taskId: existingTask.id,
+      projectId: existingTask.projectId ?? null,
+    });
+
+    if (existingTask.projectId) {
+      emitCRMEvent("project:updated", {
+        type: "project_progress_updated",
+        projectId: existingTask.projectId,
+      });
+    }
+
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function toggleChecklistItem(req, res) {
+  try {
+    const item = await prisma.taskChecklistItem.findUnique({
+      where: { id: req.params.itemId },
+      include: {
+        task: {
+          include: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      return res.status(404).json({ error: "Checklist item not found" });
+    }
+
+    const canUpdate =
+      req.user.role === "SUPERADMIN" ||
+      req.user.role === "ADMIN" ||
+      req.user.role === "MANAGER" ||
+      item.task.assignments.some((assignment) => assignment.userId === req.user.userId);
+
+    if (!canUpdate) {
+      return res.status(403).json({ error: "You are not allowed to update this checklist item" });
+    }
+
+    await prisma.taskChecklistItem.update({
+      where: { id: req.params.itemId },
+      data: {
+        completed: !item.completed,
+        completedAt: item.completed ? null : new Date(),
+      },
+    });
+
+    const task = await syncTaskProgress(item.taskId);
+    emitCRMEvent("task:updated", {
+      type: "checklist_toggled",
+      taskId: item.taskId,
+      projectId: task.projectId ?? null,
+      checklistItemId: req.params.itemId,
+      progress: task.progress,
+      status: task.status,
+    });
+    if (task.projectId) {
+      emitCRMEvent("project:updated", {
+        type: "project_progress_updated",
+        projectId: task.projectId,
+      });
+    }
     return res.json(task);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function createTaskIssue(req, res) {
+  try {
+    const { title, description } = req.body;
+
+    if (!title || !description) {
+      return res.status(400).json({ error: "Issue title and description are required" });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: req.params.id },
+      include: {
+        assignments: true,
+      },
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    const canReport =
+      req.user.role === "SUPERADMIN" ||
+      req.user.role === "ADMIN" ||
+      req.user.role === "MANAGER" ||
+      task.assignments.some((assignment) => assignment.userId === req.user.userId);
+
+    if (!canReport) {
+      return res.status(403).json({ error: "You are not allowed to report an issue on this task" });
+    }
+
+    const issue = await prisma.taskIssue.create({
+      data: {
+        taskId: req.params.id,
+        reporterId: req.user.userId,
+        title,
+        description,
+      },
+      include: {
+        reporter: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        resolvedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    emitCRMEvent("task:updated", {
+      type: "issue_reported",
+      taskId: req.params.id,
+      projectId: task.projectId ?? null,
+      issueId: issue.id,
+    });
+    emitCRMEvent("issue:updated", {
+      type: "issue_reported",
+      taskId: req.params.id,
+      issueId: issue.id,
+    });
+
+    return res.status(201).json(issue);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function respondToTaskIssue(req, res) {
+  try {
+    const { managerResponse, status = "RESOLVED" } = req.body;
+
+    if (!managerResponse) {
+      return res.status(400).json({ error: "Manager response is required" });
+    }
+
+    const issue = await prisma.taskIssue.findUnique({
+      where: { id: req.params.issueId },
+      include: {
+        task: {
+          include: {
+            assignments: true,
+          },
+        },
+      },
+    });
+
+    if (!issue) {
+      return res.status(404).json({ error: "Issue not found" });
+    }
+
+    const canRespond =
+      req.user.role === "SUPERADMIN" ||
+      req.user.role === "ADMIN" ||
+      req.user.role === "MANAGER";
+
+    if (!canRespond) {
+      return res.status(403).json({ error: "Only leadership can respond to issues" });
+    }
+
+    const updatedIssue = await prisma.taskIssue.update({
+      where: { id: req.params.issueId },
+      data: {
+        managerResponse,
+        status,
+        resolvedById: req.user.userId,
+      },
+      include: {
+        reporter: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        resolvedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    emitCRMEvent("task:updated", {
+      type: "issue_responded",
+      taskId: issue.taskId,
+      projectId: issue.task.projectId ?? null,
+      issueId: updatedIssue.id,
+    });
+    emitCRMEvent("issue:updated", {
+      type: "issue_responded",
+      taskId: issue.taskId,
+      issueId: updatedIssue.id,
+    });
+
+    return res.json(updatedIssue);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

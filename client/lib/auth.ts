@@ -1,4 +1,5 @@
 const TOKEN_KEY = "token";
+const AUTH_EVENT = "crm-auth-changed";
 
 export function getToken() {
   if (typeof window === "undefined") {
@@ -14,6 +15,7 @@ export function setToken(token: string) {
   }
 
   window.localStorage.setItem(TOKEN_KEY, token);
+  window.dispatchEvent(new Event(AUTH_EVENT));
 }
 
 export function clearToken() {
@@ -22,4 +24,9 @@ export function clearToken() {
   }
 
   window.localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event(AUTH_EVENT));
+}
+
+export function getAuthEventName() {
+  return AUTH_EVENT;
 }

@@ -1,13 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import type { CRMUser, Department, UserRole } from "@/types/crm";
 
 const roles: UserRole[] = ["EMPLOYEE", "INTERN", "MANAGER", "ADMIN"];
+
+function Surface({ children }: { children: ReactNode }) {
+  return (
+    <section
+      className="rounded-[20px] border p-5"
+      style={{
+        background: "var(--surface)",
+        borderColor: "var(--border)",
+        boxShadow: "var(--shadow-soft)",
+      }}
+    >
+      {children}
+    </section>
+  );
+}
 
 export default function EmployeesPage() {
   const { user, loading: sessionLoading } = useSession({
@@ -30,15 +46,25 @@ export default function EmployeesPage() {
   const [notice, setNotice] = useState("");
   const [updatingId, setUpdatingId] = useState("");
 
+  const fieldStyle = {
+    borderColor: "var(--border)",
+    background: "var(--surface-soft)",
+    color: "var(--text-main)",
+  } as const;
+
+  const loadTeam = async () => {
+    const [members, departmentData] = await Promise.all([
+      apiGet<CRMUser[]>("/users"),
+      apiGet<Department[]>("/departments"),
+    ]);
+    setUsers(members);
+    setDepartments(departmentData);
+  };
+
   useEffect(() => {
     async function fetchUsers() {
       try {
-        const [members, departmentData] = await Promise.all([
-          apiGet<CRMUser[]>("/users"),
-          apiGet<Department[]>("/departments"),
-        ]);
-        setUsers(members);
-        setDepartments(departmentData);
+        await loadTeam();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load employees");
       } finally {
@@ -51,6 +77,10 @@ export default function EmployeesPage() {
     }
   }, [user]);
 
+  useRealtimeRefresh(user, ["org:updated"], async () => {
+    await loadTeam();
+  });
+
   const createEmployee = async () => {
     if (!user) {
       return;
@@ -60,9 +90,7 @@ export default function EmployeesPage() {
       setCreating(true);
       setError("");
       setNotice("");
-
-      const payload = { ...form };
-      await apiPost("/users", payload);
+      await apiPost("/users", { ...form });
       setForm({
         name: "",
         email: "",
@@ -73,8 +101,7 @@ export default function EmployeesPage() {
         managerId: "",
       });
       setNotice("Team member created successfully.");
-      const data = await apiGet<CRMUser[]>("/users");
-      setUsers(data);
+      await loadTeam();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create team member");
     } finally {
@@ -82,7 +109,11 @@ export default function EmployeesPage() {
     }
   };
 
-  const assignEmployee = async (member: CRMUser, field: "managerId" | "departmentId" | "role", value: string) => {
+  const assignEmployee = async (
+    member: CRMUser,
+    field: "managerId" | "departmentId" | "role",
+    value: string
+  ) => {
     try {
       setUpdatingId(member.id);
       setError("");
@@ -93,8 +124,7 @@ export default function EmployeesPage() {
         role: field === "role" ? value : member.role,
         designation: member.designation ?? "",
       });
-      const data = await apiGet<CRMUser[]>("/users");
-      setUsers(data);
+      await loadTeam();
       setNotice("Assignment updated successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update assignment");
@@ -113,57 +143,75 @@ export default function EmployeesPage() {
 
   return (
     <CRMShell user={user}>
-      <div className="space-y-6">
-        <section className="rounded-[34px] border border-white/70 bg-white/85 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.10)] backdrop-blur">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">Team control</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">Employees & interns</h1>
-          <p className="mt-4 max-w-2xl text-base leading-7 text-slate-500">
-            Admins can onboard team members, place them in departments, and assign employees or interns to reporting managers.
+      <div className="space-y-4">
+        <Surface>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+            Team control
           </p>
-        </section>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--text-main)]">
+            Employees & interns
+          </h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">
+            Create members, assign departments, and connect employees or interns to their reporting managers.
+          </p>
+        </Surface>
 
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-          <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
+        <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+          <Surface>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
                   Create team member
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">
                   Add employee or intern
                 </h2>
               </div>
-              <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white">
+              <span
+                className="rounded-full px-3 py-1 text-xs font-semibold text-white"
+                style={{ background: "var(--accent-strong)" }}
+              >
                 Admin only
               </span>
             </div>
 
             {user.role === "MANAGER" ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">
+              <div
+                className="mt-6 rounded-3xl border border-dashed p-6 text-sm"
+                style={{
+                  borderColor: "var(--border)",
+                  background: "var(--surface-soft)",
+                  color: "var(--text-soft)",
+                }}
+              >
                 Managers can view their team, but only admins and the CEO can create new employees and interns.
               </div>
             ) : (
               <div className="mt-6 grid gap-4">
                 <input
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   placeholder="Full name"
                   value={form.name}
                   onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                 />
                 <input
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   placeholder="Work email"
                   value={form.email}
                   onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
                 />
                 <input
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   placeholder="Temporary password"
                   value={form.password}
                   onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                 />
                 <select
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   value={form.role}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, role: event.target.value as UserRole }))
@@ -176,7 +224,8 @@ export default function EmployeesPage() {
                   ))}
                 </select>
                 <input
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   placeholder="Designation"
                   value={form.designation}
                   onChange={(event) =>
@@ -184,7 +233,8 @@ export default function EmployeesPage() {
                   }
                 />
                 <select
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   value={form.departmentId}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, departmentId: event.target.value }))
@@ -198,7 +248,8 @@ export default function EmployeesPage() {
                   ))}
                 </select>
                 <select
-                  className="h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 outline-none focus:border-slate-950"
+                  className="h-12 rounded-2xl border px-4 outline-none"
+                  style={fieldStyle}
                   value={form.managerId}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, managerId: event.target.value }))
@@ -219,27 +270,30 @@ export default function EmployeesPage() {
                   type="button"
                   disabled={creating}
                   onClick={() => void createEmployee()}
-                  className="h-12 rounded-2xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
+                  className="h-12 rounded-2xl text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-70"
+                  style={{ background: "var(--accent-strong)" }}
                 >
                   {creating ? "Creating..." : "Create team member"}
                 </button>
               </div>
             )}
-          </section>
+          </Surface>
 
-          <section className="rounded-[30px] border border-slate-200/70 bg-white/90 p-6 shadow-[0_20px_80px_rgba(15,23,42,0.08)]">
+          <Surface>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-slate-400">Directory</p>
-                <h2 className="mt-2 text-2xl font-semibold text-slate-950">Current team</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+                  Directory
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-[var(--text-main)]">Current team</h2>
               </div>
-              <span className="text-sm text-slate-500">{users.length} members</span>
+              <span className="text-sm text-[var(--text-soft)]">{users.length} members</span>
             </div>
 
-            <div className="mt-6 overflow-hidden rounded-[24px] border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-left">
-                <thead className="bg-slate-50">
-                  <tr className="text-xs uppercase tracking-[0.22em] text-slate-400">
+            <div className="mt-6 overflow-x-auto rounded-[20px] border" style={{ borderColor: "var(--border)" }}>
+              <table className="min-w-full text-left">
+                <thead style={{ background: "var(--surface-soft)" }}>
+                  <tr className="text-xs uppercase tracking-[0.22em] text-[var(--text-faint)]">
                     <th className="px-5 py-4 font-semibold">Name</th>
                     <th className="px-5 py-4 font-semibold">Email</th>
                     <th className="px-5 py-4 font-semibold">Role</th>
@@ -247,24 +301,28 @@ export default function EmployeesPage() {
                     <th className="px-5 py-4 font-semibold">Manager</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
+                <tbody style={{ background: "var(--surface-strong)" }}>
                   {users.map((member) => (
-                    <tr key={member.id} className="text-sm text-slate-700">
-                      <td className="px-5 py-4 font-medium text-slate-950">
-                        <div>{member.name}</div>
-                        <div className="mt-1 text-xs font-medium text-slate-400">
+                    <tr key={member.id} className="border-t" style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}>
+                      <td className="px-5 py-4">
+                        <div className="font-medium text-[var(--text-main)]">{member.name}</div>
+                        <div className="mt-1 text-xs font-medium text-[var(--text-faint)]">
                           {member.designation || "No designation"}
                         </div>
                       </td>
                       <td className="px-5 py-4">{member.email}</td>
                       <td className="px-5 py-4">
                         {user.role === "MANAGER" || member.role === "SUPERADMIN" ? (
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                          <span
+                            className="rounded-full px-3 py-1 text-xs font-semibold"
+                            style={{ background: "var(--surface-soft)", color: "var(--text-soft)" }}
+                          >
                             {member.role}
                           </span>
                         ) : (
                           <select
-                            className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700"
+                            className="rounded-2xl border px-3 py-2 text-xs font-semibold"
+                            style={fieldStyle}
                             value={member.role}
                             disabled={updatingId === member.id}
                             onChange={(event) =>
@@ -284,7 +342,8 @@ export default function EmployeesPage() {
                           member.department?.name || "-"
                         ) : (
                           <select
-                            className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
+                            className="rounded-2xl border px-3 py-2 text-xs"
+                            style={fieldStyle}
                             value={member.department?.id ?? ""}
                             disabled={updatingId === member.id || member.role === "SUPERADMIN"}
                             onChange={(event) =>
@@ -305,7 +364,8 @@ export default function EmployeesPage() {
                           member.manager?.name || "-"
                         ) : (
                           <select
-                            className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"
+                            className="rounded-2xl border px-3 py-2 text-xs"
+                            style={fieldStyle}
                             value={member.manager?.id ?? ""}
                             disabled={updatingId === member.id || member.role === "SUPERADMIN"}
                             onChange={(event) =>
@@ -329,8 +389,8 @@ export default function EmployeesPage() {
               </table>
             </div>
 
-            {dataLoading ? <p className="mt-4 text-sm text-slate-500">Loading employees...</p> : null}
-          </section>
+            {dataLoading ? <p className="mt-4 text-sm text-[var(--text-soft)]">Loading employees...</p> : null}
+          </Surface>
         </div>
       </div>
     </CRMShell>

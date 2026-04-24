@@ -1,0 +1,84 @@
+"use client";
+
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { io, type Socket } from "socket.io-client";
+import { getAuthEventName, getToken } from "@/lib/auth";
+
+type SocketContextValue = {
+  socket: Socket | null;
+  connected: boolean;
+};
+
+const SocketContext = createContext<SocketContextValue>({
+  socket: null,
+  connected: false,
+});
+
+function getSocketUrl() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
+  return apiUrl.replace(/\/api$/, "");
+}
+
+export function SocketProvider({ children }: { children: React.ReactNode }) {
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [tokenVersion, setTokenVersion] = useState(0);
+
+  useEffect(() => {
+    const handleAuthChange = () => {
+      setTokenVersion((value) => value + 1);
+    };
+
+    window.addEventListener(getAuthEventName(), handleAuthChange);
+    return () => {
+      window.removeEventListener(getAuthEventName(), handleAuthChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const token = getToken();
+
+    if (!token) {
+      setSocket(null);
+      setConnected(false);
+      return;
+    }
+
+    const nextSocket = io(getSocketUrl(), {
+      transports: ["websocket"],
+      auth: {
+        token,
+      },
+    });
+
+    nextSocket.on("connect", () => {
+      setConnected(true);
+    });
+
+    nextSocket.on("disconnect", () => {
+      setConnected(false);
+    });
+
+    setSocket(nextSocket);
+
+    return () => {
+      nextSocket.disconnect();
+      setSocket(null);
+      setConnected(false);
+    };
+  }, [tokenVersion]);
+
+  const value = useMemo(
+    () => ({
+      socket,
+      connected,
+    }),
+    [socket, connected]
+  );
+
+  return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
+}
+
+export function useSocket() {
+  return useContext(SocketContext);
+}
