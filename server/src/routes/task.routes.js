@@ -4,12 +4,12 @@ import {
   getTasks,
   updateTaskStatus,
 } from "../controllers/task.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
+import { authMiddleware, authorizeRoles } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.post("/", protect, createTask);
-router.get("/", protect, getTasks);
-router.put("/:id", protect, updateTaskStatus);
+router.post("/", authMiddleware, authorizeRoles("SUPERADMIN", "ADMIN", "MANAGER"), createTask);
+router.get("/", authMiddleware, getTasks);
+router.put("/:id", authMiddleware, updateTaskStatus);
 
 export default router;

@@ -2,9 +2,17 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import prisma from "../config/db.js";
 
-function signToken(userId) {
+function signToken(user) {
   const secret = process.env.JWT_SECRET || "SECRET";
-  return jwt.sign({ userId }, secret, { expiresIn: "7d" });
+  return jwt.sign(
+    {
+      userId: user.id,
+      role: user.role,
+      email: user.email,
+    },
+    secret,
+    { expiresIn: "7d" }
+  );
 }
 
 export async function signup(req, res) {
@@ -32,11 +40,26 @@ export async function signup(req, res) {
         name: true,
         email: true,
         role: true,
+        designation: true,
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        manager: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
         createdAt: true,
       },
     });
 
-    const token = signToken(user.id);
+    const token = signToken(user);
 
     return res.status(201).json({ token, user });
   } catch (err) {
@@ -64,7 +87,7 @@ export async function login(req, res) {
       return res.status(401).json({ error: "Invalid password" });
     }
 
-    const token = signToken(user.id);
+    const token = signToken(user);
 
     return res.json({
       token,
@@ -73,8 +96,49 @@ export async function login(req, res) {
         name: user.name,
         email: user.email,
         role: user.role,
+        designation: user.designation,
+        department: user.department,
+        manager: user.manager,
       },
     });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function getCurrentUser(req, res) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        designation: true,
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        manager: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json(user);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

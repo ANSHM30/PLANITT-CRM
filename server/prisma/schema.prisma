@@ -5,11 +5,14 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
+  SUPERADMIN
   ADMIN
   EMPLOYEE
+  INTERN
   MANAGER
 }
 
@@ -20,15 +23,37 @@ enum TaskStatus {
 }
 
 model User {
-  id          String           @id @default(cuid())
-  name        String
-  email       String           @unique
-  password    String
-  role        UserRole         @default(EMPLOYEE)
-  assignments TaskAssignment[]
-  attendances Attendance[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id               String           @id @default(cuid())
+  name             String
+  email            String           @unique
+  password         String
+  role             UserRole         @default(EMPLOYEE)
+  designation      String?
+  departmentId     String?
+  managerId        String?
+  createdById      String?
+  department       Department?      @relation("DepartmentMembers", fields: [departmentId], references: [id])
+  manager          User?            @relation("ManagerReports", fields: [managerId], references: [id])
+  directReports    User[]           @relation("ManagerReports")
+  createdBy        User?            @relation("UserCreator", fields: [createdById], references: [id])
+  createdUsers     User[]           @relation("UserCreator")
+  headedDepartment Department?      @relation("DepartmentHead")
+  assignments      TaskAssignment[]
+  attendances      Attendance[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+model Department {
+  id          String @id @default(cuid())
+  name        String @unique
+  code        String @unique
+  description String?
+  headId      String? @unique
+  head        User?   @relation("DepartmentHead", fields: [headId], references: [id])
+  users       User[]  @relation("DepartmentMembers")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Task {
@@ -36,6 +61,7 @@ model Task {
   title       String
   description String?
   status      TaskStatus       @default(TODO)
+  progress    Int              @default(0)
   assignments TaskAssignment[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
