@@ -43,6 +43,7 @@ model User {
   reportedIssues   TaskIssue[]        @relation("ReportedIssues")
   resolvedIssues   TaskIssue[]        @relation("ResolvedIssues")
   attendances      Attendance[]
+  googleWorkspaceConnection GoogleWorkspaceConnection?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 }
@@ -135,4 +136,20 @@ model Attendance {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+}
+
+model GoogleWorkspaceConnection {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  workspaceEmail String?
+  accessToken   String?
+  refreshToken  String?
+  expiryDate    DateTime?
+  grantedScopes String[]
+  connectedMeet Boolean  @default(false)
+  connectedSheets Boolean @default(false)
+  connectedDrive Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

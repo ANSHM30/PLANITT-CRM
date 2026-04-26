@@ -129,6 +129,13 @@ function buildAttendanceHeatmap(records, days, denominator = 1, useHours = false
   });
 }
 
+function toPercent(numerator, denominator) {
+  if (!denominator) {
+    return 0;
+  }
+  return Math.round((numerator / denominator) * 100);
+}
+
 async function getLeadershipUpdates(limit = 8) {
   const issues = await prisma.taskIssue.findMany({
     where: {
@@ -202,6 +209,10 @@ export async function getDashboardSummary(req, res) {
         attendanceForTrend,
         trendTasks,
         updatesFeed,
+        departmentUsers,
+        projectsWithTasks,
+        taskIssues,
+        attendanceWithDepartments,
       ] = await Promise.all([
         prisma.user.count({
           where: { role: { in: ["EMPLOYEE", "MANAGER", "ADMIN", "SUPERADMIN"] } },
@@ -308,6 +319,60 @@ export async function getDashboardSummary(req, res) {
           select: { createdAt: true, updatedAt: true, progress: true, status: true },
         }),
         getLeadershipUpdates(8),
+        prisma.user.findMany({
+          where: {
+            role: { in: ["EMPLOYEE", "INTERN", "MANAGER", "ADMIN"] },
+          },
+          select: {
+            id: true,
+            role: true,
+            departmentId: true,
+          },
+        }),
+        prisma.project.findMany({
+          select: {
+            id: true,
+            departmentId: true,
+            tasks: {
+              select: {
+                status: true,
+                progress: true,
+              },
+            },
+          },
+        }),
+        prisma.taskIssue.findMany({
+          select: {
+            id: true,
+            status: true,
+            task: {
+              select: {
+                assignments: {
+                  select: {
+                    user: {
+                      select: {
+                        departmentId: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        }),
+        prisma.attendance.findMany({
+          where: { date: { gte: trendStart } },
+          select: {
+            date: true,
+            checkIn: true,
+            checkOut: true,
+            user: {
+              select: {
+                departmentId: true,
+              },
+            },
+          },
+        }),
       ]);
 
       const rolePerformanceMap = new Map();
@@ -386,6 +451,126 @@ export async function getDashboardSummary(req, res) {
       const workingHoursTrend = buildWorkingHoursTrend(attendanceForTrend, trendDays);
       const taskProgressTrend = buildTaskProgressTrend(trendTasks, trendDays);
 
+      const departmentStatsMap = new Map();
+      for (const department of departmentBreakdown) {
+        departmentStatsMap.set(department.id, {
+          departmentId: department.id,
+          departmentName: department.name,
+          members: 0,
+          managers: 0,
+          interns: 0,
+          totalProjects: 0,
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          activeAttendance: 0,
+          totalHours: 0,
+          attendanceEntries: 0,
+          openIssues: 0,
+          progressSum: 0,
+          progressCount: 0,
+        });
+      }
+
+      for (const user of departmentUsers) {
+        if (!user.departmentId || !departmentStatsMap.has(user.departmentId)) {
+          continue;
+        }
+        const bucket = departmentStatsMap.get(user.departmentId);
+        bucket.members += 1;
+        if (user.role === "MANAGER" || user.role === "ADMIN") {
+          bucket.managers += 1;
+        }
+        if (user.role === "INTERN") {
+          bucket.interns += 1;
+        }
+      }
+
+      for (const project of projectsWithTasks) {
+        if (!departmentStatsMap.has(project.departmentId)) {
+          continue;
+        }
+        const bucket = departmentStatsMap.get(project.departmentId);
+        bucket.totalProjects += 1;
+
+        for (const task of project.tasks) {
+          bucket.totalTasks += 1;
+          bucket.progressSum += task.progress;
+          bucket.progressCount += 1;
+          if (task.status === "DONE") {
+            bucket.completedTasks += 1;
+          } else {
+            bucket.pendingTasks += 1;
+          }
+        }
+      }
+
+      for (const issue of taskIssues) {
+        const departmentIds = Array.from(
+          new Set(
+            issue.task.assignments
+              .map((assignment) => assignment.user.departmentId)
+              .filter(Boolean)
+          )
+        );
+
+        for (const departmentId of departmentIds) {
+          if (!departmentStatsMap.has(departmentId)) {
+            continue;
+          }
+
+          if (issue.status !== "RESOLVED") {
+            departmentStatsMap.get(departmentId).openIssues += 1;
+          }
+        }
+      }
+
+      for (const attendance of attendanceWithDepartments) {
+        const departmentId = attendance.user?.departmentId;
+        if (!departmentId || !departmentStatsMap.has(departmentId)) {
+          continue;
+        }
+        const bucket = departmentStatsMap.get(departmentId);
+        bucket.attendanceEntries += 1;
+        bucket.totalHours += getDurationHours(attendance.checkIn, attendance.checkOut);
+        if (!attendance.checkOut) {
+          bucket.activeAttendance += 1;
+        }
+      }
+
+      const departmentAnalytics = departmentBreakdown.map((department) => {
+        const stats = departmentStatsMap.get(department.id);
+        return {
+          departmentId: department.id,
+          departmentName: department.name,
+          members: stats.members,
+          managers: stats.managers,
+          interns: stats.interns,
+          totalProjects: stats.totalProjects,
+          totalTasks: stats.totalTasks,
+          completedTasks: stats.completedTasks,
+          pendingTasks: stats.pendingTasks,
+          completionRate: toPercent(stats.completedTasks, stats.totalTasks),
+          avgProgress: stats.progressCount ? Math.round(stats.progressSum / stats.progressCount) : 0,
+          activeAttendance: stats.activeAttendance,
+          avgWorkingHours: stats.attendanceEntries
+            ? Number((stats.totalHours / stats.attendanceEntries).toFixed(2))
+            : 0,
+          openIssues: stats.openIssues,
+        };
+      });
+
+      const totalProjects = departmentAnalytics.reduce((sum, item) => sum + item.totalProjects, 0);
+      const openIssues = departmentAnalytics.reduce((sum, item) => sum + item.openIssues, 0);
+      const totalMembersForAttendance = departmentAnalytics.reduce((sum, item) => sum + item.members, 0);
+      const totalActiveAttendance = departmentAnalytics.reduce((sum, item) => sum + item.activeAttendance, 0);
+      const orgAvgProgress = departmentAnalytics.length
+        ? Math.round(
+            departmentAnalytics.reduce((sum, item) => sum + item.avgProgress, 0) /
+              departmentAnalytics.length
+          )
+        : 0;
+
       return res.json({
         scope: isSuperAdmin ? "superadmin" : "admin",
         metrics: {
@@ -406,6 +591,22 @@ export async function getDashboardSummary(req, res) {
           workingHoursTrend,
           taskProgressTrend,
           updatesFeed,
+          superAdmin:
+            isSuperAdmin
+              ? {
+                  departmentWise: departmentAnalytics,
+                  organizationHealth: {
+                    totalProjects,
+                    projectToTaskRatio: totalProjects
+                      ? Number((totalTasks / totalProjects).toFixed(2))
+                      : 0,
+                    taskCompletionRate: toPercent(completedTasks, totalTasks),
+                    liveAttendanceRate: toPercent(totalActiveAttendance, totalMembersForAttendance),
+                    openIssues,
+                    avgDepartmentProgress: orgAvgProgress,
+                  },
+                }
+              : null,
         },
       });
     }

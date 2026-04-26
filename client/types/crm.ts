@@ -155,6 +155,32 @@ export type AdminDashboardSummary = {
       reporterName?: string | null;
       createdAt: string;
     }>;
+    superAdmin: null | {
+      departmentWise: Array<{
+        departmentId: string;
+        departmentName: string;
+        members: number;
+        managers: number;
+        interns: number;
+        totalProjects: number;
+        totalTasks: number;
+        completedTasks: number;
+        pendingTasks: number;
+        completionRate: number;
+        avgProgress: number;
+        activeAttendance: number;
+        avgWorkingHours: number;
+        openIssues: number;
+      }>;
+      organizationHealth: {
+        totalProjects: number;
+        projectToTaskRatio: number;
+        taskCompletionRate: number;
+        liveAttendanceRate: number;
+        openIssues: number;
+        avgDepartmentProgress: number;
+      };
+    };
   };
 };
 
@@ -200,3 +226,66 @@ export type EmployeeDashboardSummary = {
 };
 
 export type DashboardSummary = AdminDashboardSummary | EmployeeDashboardSummary;
+
+export type GoogleWorkspaceStatus = {
+  connected: boolean;
+  workspaceEmail: string | null;
+  services: {
+    meet: boolean;
+    sheets: boolean;
+    drive: boolean;
+  };
+  grantedScopes: string[];
+  lastSyncedAt: string | null;
+  crmSignals: {
+    totalTasks: number;
+    openTasks: number;
+    totalProjects: number;
+    totalDepartments: number;
+  };
+  recommendations: Array<{
+    id: string;
+    title: string;
+    description: string;
+    source: string;
+    crmUseCase: string;
+  }>;
+};
+
+export type UserAnalyticsSummary = {
+  user: CRMUser;
+  metrics: {
+    totalTasks: number;
+    completedTasks: number;
+    pendingTasks: number;
+    checkedIn: boolean;
+    avgProgress: number;
+    avgDailyHours: number;
+    attendanceDays: number;
+  };
+  taskStatusBreakdown: Array<{
+    label: string;
+    value: number;
+  }>;
+  recentTasks: Task[];
+  analytics: {
+    attendanceHeatmap: Array<{
+      date: string;
+      label: string;
+      value: number;
+      intensity: number;
+    }>;
+    workingHoursTrend: Array<{
+      date: string;
+      label: string;
+      hours: number;
+    }>;
+    taskProgressTrend: Array<{
+      date: string;
+      label: string;
+      created: number;
+      completed: number;
+      avgProgress: number;
+    }>;
+  };
+};

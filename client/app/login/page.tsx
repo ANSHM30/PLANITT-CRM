@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "@/lib/auth";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,13 +12,54 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  const GOOGLE_FRIENDLY_ERROR = "Unable to continue with Google login right now. Please try again in a moment.";
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashParams = new URLSearchParams(hash);
+    const googleToken = hashParams.get("google_token");
+    const googleState = hashParams.get("google");
+
+    if (googleToken) {
+      setToken(decodeURIComponent(googleToken));
+      window.history.replaceState({}, document.title, "/login");
+      router.push("/dashboard");
+      return;
+    }
+
+    const query = new URLSearchParams(window.location.search);
+    const queryState = query.get("google");
+    const state = queryState || googleState;
+
+    if (state === "user_not_found") {
+      setError("Google account is not registered in CRM yet. Ask admin to create your user first.");
+    } else if (state === "denied") {
+      setError("Google login was cancelled.");
+    } else if (
+      state === "missing_config" ||
+      state === "token_failed" ||
+      state === "failed" ||
+      state === "missing_code" ||
+      state === "email_missing"
+    ) {
+      setError(GOOGLE_FRIENDLY_ERROR);
+    }
+  }, [router]);
 
   const handleLogin = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const res = await fetch("http://localhost:5000/api/auth/login", {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -36,6 +79,25 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      setGoogleLoading(true);
+      setError("");
+
+      const res = await fetch(`${API_BASE_URL}/auth/google/auth-url`);
+      const data = await res.json();
+
+      if (!res.ok || !data.authUrl) {
+        throw new Error("google_auth_start_failed");
+      }
+
+      window.location.href = data.authUrl;
+    } catch (_err) {
+      setError(GOOGLE_FRIENDLY_ERROR);
+      setGoogleLoading(false);
     }
   };
 
@@ -101,6 +163,15 @@ export default function LoginPage() {
             disabled={loading}
           >
             {loading ? "Logging in..." : "Enter workspace"}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            className="mt-3 h-14 w-full rounded-2xl border border-slate-300 bg-white text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+            disabled={googleLoading}
+          >
+            {googleLoading ? "Redirecting to Google..." : "Login with Google"}
           </button>
 
           <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
