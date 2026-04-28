@@ -3,6 +3,9 @@ import prisma from "../config/db.js";
 
 const GOOGLE_AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_CALENDAR_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const GOOGLE_SHEETS_URL = "https://sheets.googleapis.com/v4/spreadsheets";
+const GOOGLE_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 
 const SERVICE_SCOPE_MAP = {
   meet: "https://www.googleapis.com/auth/calendar.events",
@@ -20,6 +23,24 @@ function getEnvConfig() {
     redirectUri: process.env.GOOGLE_REDIRECT_URI,
     clientUrl: process.env.CLIENT_URL || "http://localhost:3000",
   };
+}
+
+function createError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function hasGoogleWorkspaceDelegate() {
+  return Boolean(prisma.googleWorkspaceConnection?.findUnique);
+}
+
+function isMissingGoogleConnectionTable(error) {
+  return (
+    error?.code === "P2021" ||
+    error?.message?.includes("googleworkspaceconnection") ||
+    error?.message?.toLowerCase().includes("relation") && error?.message?.toLowerCase().includes("does not exist")
+  );
 }
 
 function parseRequestedServices(rawServices) {
@@ -63,6 +84,176 @@ function decodeJwtPayload(token) {
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
   const decoded = Buffer.from(padded, "base64").toString("utf8");
   return JSON.parse(decoded);
+}
+
+async function refreshGoogleAccessToken(connection, config) {
+  if (!connection.refreshToken) {
+    throw createError("Google Workspace needs to be reconnected to refresh access.", 401);
+  }
+
+  const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: connection.refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+
+  const tokenPayload = await tokenResponse.json();
+  if (!tokenResponse.ok || !tokenPayload.access_token) {
+    throw createError("Failed to refresh Google Workspace access token.", 401);
+  }
+
+  return prisma.googleWorkspaceConnection.update({
+    where: { userId: connection.userId },
+    data: {
+      accessToken: tokenPayload.access_token,
+      expiryDate: tokenPayload.expires_in
+        ? new Date(Date.now() + Number(tokenPayload.expires_in) * 1000)
+        : null,
+      ...(tokenPayload.refresh_token ? { refreshToken: tokenPayload.refresh_token } : {}),
+    },
+  });
+}
+
+async function getActiveGoogleConnection(userId) {
+  const config = getEnvConfig();
+  if (!config.clientId || !config.clientSecret || !config.redirectUri) {
+    throw createError("Google OAuth is not fully configured in server environment.", 400);
+  }
+
+  if (!hasGoogleWorkspaceDelegate()) {
+    throw createError(
+      "Google integration model is unavailable in Prisma client. Run Prisma generate and restart server.",
+      500
+    );
+  }
+
+  const connection = await prisma.googleWorkspaceConnection.findUnique({
+    where: { userId },
+  });
+
+  if (!connection?.accessToken) {
+    throw createError("Google Workspace is not connected for this account.", 400);
+  }
+
+  const expiresAt = connection.expiryDate ? new Date(connection.expiryDate).getTime() : 0;
+  const needsRefresh = Boolean(connection.refreshToken) && expiresAt && expiresAt <= Date.now() + 60 * 1000;
+  if (needsRefresh) {
+    return refreshGoogleAccessToken(connection, config);
+  }
+
+  return connection;
+}
+
+async function googleApiRequest(url, accessToken, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const isJson = contentType.includes("application/json");
+  const payload = isJson ? await response.json() : null;
+
+  if (!response.ok) {
+    const apiMessage =
+      payload?.error?.message ||
+      payload?.error_description ||
+      `Google API request failed with status ${response.status}`;
+    throw createError(apiMessage, response.status);
+  }
+
+  return payload;
+}
+
+async function getProjectWorkspaceContext(projectId) {
+  if (!projectId) {
+    throw createError("Project is required for this Google Workspace action.", 400);
+  }
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: {
+      department: {
+        select: {
+          id: true,
+          name: true,
+          code: true,
+        },
+      },
+      owner: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+      tasks: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          assignments: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  role: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!project) {
+    throw createError("Project not found.", 404);
+  }
+
+  return project;
+}
+
+function getProjectProgress(tasks) {
+  if (!tasks.length) {
+    return 0;
+  }
+
+  return Math.round(tasks.reduce((sum, task) => sum + (task.progress || 0), 0) / tasks.length);
+}
+
+function buildTaskRows(project) {
+  return project.tasks.map((task) => [
+    task.title,
+    task.status,
+    `${task.progress}%`,
+    task.assignments.map((assignment) => assignment.user.name).join(", ") || "Unassigned",
+    task.description || "",
+  ]);
+}
+
+function buildProjectSummaryText(project) {
+  const openTasks = project.tasks.filter((task) => task.status !== "DONE").length;
+  return [
+    `Project: ${project.name}`,
+    `Department: ${project.department?.name || "Unassigned"}`,
+    `Owner: ${project.owner?.name || "Not assigned"}`,
+    `Progress: ${getProjectProgress(project.tasks)}%`,
+    `Open tasks: ${openTasks}`,
+    "",
+    "Recent tasks:",
+    ...project.tasks.slice(0, 8).map((task) => `- ${task.title} [${task.status}] ${task.progress}%`),
+  ].join("\n");
 }
 
 function buildWorkspaceRecommendations() {
@@ -120,6 +311,34 @@ async function getCRMWorkspaceSignals() {
 
 export async function getGoogleWorkspaceStatus(req, res) {
   try {
+    if (!hasGoogleWorkspaceDelegate()) {
+      const config = getEnvConfig();
+      return res.status(200).json({
+        connected: false,
+        oauthConfigured: Boolean(config.clientId && config.clientSecret && config.redirectUri),
+        workspaceEmail: null,
+        services: {
+          meet: false,
+          sheets: false,
+          drive: false,
+        },
+        grantedScopes: [],
+        lastSyncedAt: null,
+        crmSignals: {
+          totalTasks: 0,
+          openTasks: 0,
+          totalProjects: 0,
+          totalDepartments: 0,
+        },
+        recommendations: buildWorkspaceRecommendations(),
+        setupRequired: true,
+        setupMessage: "Google integration model is unavailable in Prisma client. Run Prisma generate and restart server.",
+      });
+    }
+
+    const config = getEnvConfig();
+    const oauthConfigured = Boolean(config.clientId && config.clientSecret && config.redirectUri);
+
     const [connection, crmSignals] = await Promise.all([
       prisma.googleWorkspaceConnection.findUnique({
         where: { userId: req.user.userId },
@@ -137,6 +356,7 @@ export async function getGoogleWorkspaceStatus(req, res) {
 
     return res.json({
       connected: Boolean(connection),
+      oauthConfigured,
       workspaceEmail: connection?.workspaceEmail ?? null,
       services: {
         meet: connection?.connectedMeet ?? false,
@@ -149,6 +369,31 @@ export async function getGoogleWorkspaceStatus(req, res) {
       recommendations: buildWorkspaceRecommendations(),
     });
   } catch (err) {
+    if (isMissingGoogleConnectionTable(err)) {
+      const config = getEnvConfig();
+      return res.status(200).json({
+        connected: false,
+        oauthConfigured: Boolean(config.clientId && config.clientSecret && config.redirectUri),
+        workspaceEmail: null,
+        services: {
+          meet: false,
+          sheets: false,
+          drive: false,
+        },
+        grantedScopes: [],
+        lastSyncedAt: null,
+        crmSignals: {
+          totalTasks: 0,
+          openTasks: 0,
+          totalProjects: 0,
+          totalDepartments: 0,
+        },
+        recommendations: buildWorkspaceRecommendations(),
+        setupRequired: true,
+        setupMessage: "Google integration tables are not ready yet. Run Prisma migrations and retry.",
+      });
+    }
+
     return res.status(500).json({ error: err.message });
   }
 }
@@ -197,6 +442,10 @@ export async function handleGoogleCallback(req, res) {
   const dashboardUrl = `${config.clientUrl}/dashboard?tab=workspace`;
 
   try {
+    if (!hasGoogleWorkspaceDelegate()) {
+      return res.redirect(`${dashboardUrl}&google=setup_required`);
+    }
+
     const { code, state, error } = req.query;
     if (error) {
       return res.redirect(`${dashboardUrl}&google=denied`);
@@ -276,11 +525,192 @@ export async function handleGoogleCallback(req, res) {
 
 export async function disconnectGoogleWorkspace(req, res) {
   try {
+    if (!hasGoogleWorkspaceDelegate()) {
+      return res.status(204).send();
+    }
+
     await prisma.googleWorkspaceConnection.deleteMany({
       where: { userId: req.user.userId },
     });
     return res.status(204).send();
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function createGoogleMeetSession(req, res) {
+  try {
+    const connection = await getActiveGoogleConnection(req.user.userId);
+    const project = await getProjectWorkspaceContext(req.body.projectId);
+
+    const attendeeIds = Array.isArray(req.body.attendeeUserIds)
+      ? req.body.attendeeUserIds.filter(Boolean)
+      : [];
+
+    const attendees = attendeeIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: attendeeIds } },
+          select: { email: true, name: true },
+        })
+      : [];
+
+    const startAt = req.body.startAt ? new Date(req.body.startAt) : new Date(Date.now() + 30 * 60 * 1000);
+    const durationMinutes = Math.max(15, Math.min(240, Number(req.body.durationMinutes) || 45));
+    const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+
+    const payload = await googleApiRequest(
+      `${GOOGLE_CALENDAR_EVENTS_URL}?conferenceDataVersion=1`,
+      connection.accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          summary: req.body.title?.trim() || `${project.name} CRM sync`,
+          description:
+            req.body.description?.trim() ||
+            `CRM workspace sync for ${project.name} (${project.department?.name || "No department"}).`,
+          start: { dateTime: startAt.toISOString() },
+          end: { dateTime: endAt.toISOString() },
+          attendees: attendees.map((attendee) => ({ email: attendee.email, displayName: attendee.name })),
+          conferenceData: {
+            createRequest: {
+              requestId: `crm-${project.id}-${Date.now()}`,
+              conferenceSolutionKey: { type: "hangoutsMeet" },
+            },
+          },
+        }),
+      }
+    );
+
+    return res.status(201).json({
+      service: "meet",
+      title: payload.summary,
+      eventId: payload.id,
+      eventUrl: payload.htmlLink,
+      meetUrl:
+        payload.hangoutLink ||
+        payload.conferenceData?.entryPoints?.find((entryPoint) => entryPoint.entryPointType === "video")?.uri ||
+        null,
+      startAt: payload.start?.dateTime || startAt.toISOString(),
+      endAt: payload.end?.dateTime || endAt.toISOString(),
+      attendeeCount: attendees.length,
+      project: {
+        id: project.id,
+        name: project.name,
+      },
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+export async function createGoogleProjectSheet(req, res) {
+  try {
+    const connection = await getActiveGoogleConnection(req.user.userId);
+    const project = await getProjectWorkspaceContext(req.body.projectId);
+
+    const spreadsheet = await googleApiRequest(GOOGLE_SHEETS_URL, connection.accessToken, {
+      method: "POST",
+      body: JSON.stringify({
+        properties: {
+          title: `${project.name} CRM report`,
+        },
+        sheets: [{ properties: { title: "CRM Export" } }],
+      }),
+    });
+
+    const progress = getProjectProgress(project.tasks);
+    const rows = [
+      ["Project", project.name],
+      ["Department", project.department?.name || "Unassigned"],
+      ["Owner", project.owner?.name || "Not assigned"],
+      ["Progress", `${progress}%`],
+      ["Total tasks", String(project.tasks.length)],
+      ["Open tasks", String(project.tasks.filter((task) => task.status !== "DONE").length)],
+      [],
+      ["Task", "Status", "Progress", "Assignees", "Description"],
+      ...buildTaskRows(project),
+    ];
+
+    await googleApiRequest(
+      `${GOOGLE_SHEETS_URL}/${spreadsheet.spreadsheetId}/values/CRM%20Export!A1:append?valueInputOption=RAW`,
+      connection.accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify({ values: rows }),
+      }
+    );
+
+    return res.status(201).json({
+      service: "sheets",
+      title: spreadsheet.properties?.title || `${project.name} CRM report`,
+      spreadsheetId: spreadsheet.spreadsheetId,
+      spreadsheetUrl: spreadsheet.spreadsheetUrl,
+      rowCount: rows.length,
+      project: {
+        id: project.id,
+        name: project.name,
+      },
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+}
+
+export async function createGoogleDriveProjectFolder(req, res) {
+  try {
+    const connection = await getActiveGoogleConnection(req.user.userId);
+    const project = await getProjectWorkspaceContext(req.body.projectId);
+
+    const folder = await googleApiRequest(
+      `${GOOGLE_DRIVE_FILES_URL}?fields=id,name,webViewLink`,
+      connection.accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: `${project.name} CRM Workspace`,
+          mimeType: "application/vnd.google-apps.folder",
+        }),
+      }
+    );
+
+    const summaryFile = await googleApiRequest(
+      `${GOOGLE_DRIVE_FILES_URL}?fields=id,name,webViewLink`,
+      connection.accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: "crm-summary.txt",
+          parents: [folder.id],
+          mimeType: "text/plain",
+        }),
+      }
+    );
+
+    await googleApiRequest(
+      `https://www.googleapis.com/upload/drive/v3/files/${summaryFile.id}?uploadType=media`,
+      connection.accessToken,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "text/plain",
+        },
+        body: buildProjectSummaryText(project),
+      }
+    );
+
+    return res.status(201).json({
+      service: "drive",
+      title: folder.name,
+      folderId: folder.id,
+      folderUrl: folder.webViewLink,
+      summaryFileId: summaryFile.id,
+      summaryFileUrl: summaryFile.webViewLink,
+      project: {
+        id: project.id,
+        name: project.name,
+      },
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
   }
 }

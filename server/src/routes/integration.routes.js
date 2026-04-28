@@ -1,5 +1,8 @@
 import express from "express";
 import {
+  createGoogleDriveProjectFolder,
+  createGoogleMeetSession,
+  createGoogleProjectSheet,
   disconnectGoogleWorkspace,
   getGoogleAuthUrl,
   getGoogleWorkspaceStatus,
@@ -8,19 +11,38 @@ import {
 import { authMiddleware, authorizeRoles } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
+const googleWorkspaceRoles = ["SUPERADMIN", "ADMIN"];
 
 router.get(
   "/google/status",
   authMiddleware,
-  authorizeRoles("SUPERADMIN"),
+  authorizeRoles(...googleWorkspaceRoles),
   getGoogleWorkspaceStatus
 );
-router.get("/google/auth-url", authMiddleware, authorizeRoles("SUPERADMIN"), getGoogleAuthUrl);
+router.get("/google/auth-url", authMiddleware, authorizeRoles(...googleWorkspaceRoles), getGoogleAuthUrl);
 router.get("/google/callback", handleGoogleCallback);
+router.post(
+  "/google/meet/session",
+  authMiddleware,
+  authorizeRoles(...googleWorkspaceRoles),
+  createGoogleMeetSession
+);
+router.post(
+  "/google/sheets/project-report",
+  authMiddleware,
+  authorizeRoles(...googleWorkspaceRoles),
+  createGoogleProjectSheet
+);
+router.post(
+  "/google/drive/project-folder",
+  authMiddleware,
+  authorizeRoles(...googleWorkspaceRoles),
+  createGoogleDriveProjectFolder
+);
 router.delete(
   "/google/disconnect",
   authMiddleware,
-  authorizeRoles("SUPERADMIN"),
+  authorizeRoles(...googleWorkspaceRoles),
   disconnectGoogleWorkspace
 );
 

@@ -3,126 +3,115 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-enum UserRole {
-  SUPERADMIN
-  ADMIN
-  EMPLOYEE
-  INTERN
-  MANAGER
-}
-
-enum TaskStatus {
-  TODO
-  IN_PROGRESS
-  DONE
-}
-
 model User {
-  id               String           @id @default(cuid())
-  name             String
-  email            String           @unique
-  password         String
-  role             UserRole         @default(EMPLOYEE)
-  designation      String?
-  departmentId     String?
-  managerId        String?
-  createdById      String?
-  department       Department?      @relation("DepartmentMembers", fields: [departmentId], references: [id])
-  manager          User?            @relation("ManagerReports", fields: [managerId], references: [id])
-  directReports    User[]           @relation("ManagerReports")
-  createdBy        User?            @relation("UserCreator", fields: [createdById], references: [id])
-  createdUsers     User[]           @relation("UserCreator")
-  headedDepartment Department?      @relation("DepartmentHead")
-  ownedProjects    Project[]
-  assignments      TaskAssignment[]
-  reportedIssues   TaskIssue[]        @relation("ReportedIssues")
-  resolvedIssues   TaskIssue[]        @relation("ResolvedIssues")
-  attendances      Attendance[]
+  id                        String                     @id @default(cuid())
+  name                      String
+  email                     String                     @unique
+  password                  String
+  role                      UserRole                   @default(EMPLOYEE)
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  createdById               String?
+  departmentId              String?
+  designation               String?
+  managerId                 String?
+  attendances               Attendance[]
+  headedDepartment          Department?                @relation("DepartmentHead")
   googleWorkspaceConnection GoogleWorkspaceConnection?
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  chatMessages              ChatMessage[]
+  ownedProjects             Project[]
+  assignments               TaskAssignment[]
+  reportedIssues            TaskIssue[]                @relation("ReportedIssues")
+  resolvedIssues            TaskIssue[]                @relation("ResolvedIssues")
+  createdBy                 User?                      @relation("UserCreator", fields: [createdById], references: [id])
+  createdUsers              User[]                     @relation("UserCreator")
+  department                Department?                @relation("DepartmentMembers", fields: [departmentId], references: [id])
+  manager                   User?                      @relation("ManagerReports", fields: [managerId], references: [id])
+  directReports             User[]                     @relation("ManagerReports")
 }
 
 model Department {
-  id          String @id @default(cuid())
-  name        String @unique
-  code        String @unique
-  description String?
-  headId      String? @unique
-  head        User?   @relation("DepartmentHead", fields: [headId], references: [id])
-  users       User[]  @relation("DepartmentMembers")
-  projects    Project[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String        @id @default(cuid())
+  name         String        @unique
+  code         String        @unique
+  description  String?
+  headId       String?       @unique
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  head         User?         @relation("DepartmentHead", fields: [headId], references: [id])
+  projects     Project[]
+  chatMessages ChatMessage[]
+  users        User[]        @relation("DepartmentMembers")
 }
 
 model Project {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   name         String
   description  String?
   departmentId String
   ownerId      String?
-  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  owner        User?      @relation(fields: [ownerId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  department   Department    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  owner        User?         @relation(fields: [ownerId], references: [id])
   tasks        Task[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  chatMessages ChatMessage[]
 }
 
 model Task {
-  id          String           @id @default(cuid())
-  title       String
-  description String?
-  projectId   String?
-  status      TaskStatus       @default(TODO)
-  progress    Int              @default(0)
-  project     Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  assignments TaskAssignment[]
+  id             String              @id @default(cuid())
+  title          String
+  description    String?
+  status         TaskStatus          @default(TODO)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  progress       Int                 @default(0)
+  projectId      String?
+  project        Project?            @relation(fields: [projectId], references: [id])
+  assignments    TaskAssignment[]
   checklistItems TaskChecklistItem[]
-  issues      TaskIssue[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  issues         TaskIssue[]
 }
 
 model TaskChecklistItem {
-  id          String   @id @default(cuid())
-  taskId       String
-  title        String
-  completed    Boolean  @default(false)
-  completedAt  DateTime?
-  task         Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id          String    @id @default(cuid())
+  taskId      String
+  title       String
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model TaskIssue {
   id              String   @id @default(cuid())
-  taskId           String
-  reporterId       String
-  resolvedById     String?
-  title            String
-  description      String
-  status           String   @default("OPEN")
-  managerResponse  String?
-  task             Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  reporter         User     @relation("ReportedIssues", fields: [reporterId], references: [id], onDelete: Cascade)
-  resolvedBy       User?    @relation("ResolvedIssues", fields: [resolvedById], references: [id])
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  taskId          String
+  reporterId      String
+  resolvedById    String?
+  title           String
+  description     String
+  status          String   @default("OPEN")
+  managerResponse String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  reporter        User     @relation("ReportedIssues", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy      User?    @relation("ResolvedIssues", fields: [resolvedById], references: [id])
+  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
 }
 
 model TaskAssignment {
   id        String   @id @default(cuid())
   taskId    String
   userId    String
+  createdAt DateTime @default(now())
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
 
   @@unique([taskId, userId])
 }
@@ -133,23 +122,60 @@ model Attendance {
   date      DateTime
   checkIn   DateTime
   checkOut  DateTime?
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model GoogleWorkspaceConnection {
-  id            String   @id @default(cuid())
-  userId        String   @unique
-  workspaceEmail String?
-  accessToken   String?
-  refreshToken  String?
-  expiryDate    DateTime?
-  grantedScopes String[]
-  connectedMeet Boolean  @default(false)
-  connectedSheets Boolean @default(false)
-  connectedDrive Boolean @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  workspaceEmail  String?
+  accessToken     String?
+  refreshToken    String?
+  expiryDate      DateTime?
+  grantedScopes   String[]  @default([])
+  connectedMeet   Boolean   @default(false)
+  connectedSheets Boolean   @default(false)
+  connectedDrive  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChatMessage {
+  id           String          @id @default(cuid())
+  channelType  ChatChannelType
+  content      String
+  authorId     String
+  departmentId String?
+  projectId    String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  author       User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  department   Department?     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  project      Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([channelType, departmentId, createdAt])
+  @@index([channelType, projectId, createdAt])
+  @@index([authorId])
+}
+
+enum UserRole {
+  ADMIN
+  EMPLOYEE
+  MANAGER
+  INTERN
+  SUPERADMIN
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum ChatChannelType {
+  DEPARTMENT
+  PROJECT
 }

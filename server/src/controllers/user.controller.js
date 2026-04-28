@@ -2,6 +2,33 @@ import bcrypt from "bcrypt";
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
 
+function toPublicUserSelect() {
+  return {
+    id: true,
+    name: true,
+    email: true,
+    role: true,
+    designation: true,
+    departmentId: true,
+    department: {
+      select: {
+        id: true,
+        name: true,
+        code: true,
+      },
+    },
+    managerId: true,
+    manager: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
+    },
+    createdAt: true,
+  };
+}
+
 function toDateKey(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -142,30 +169,7 @@ export async function getUsers(_req, res) {
     const users = await prisma.user.findMany({
       where: isSuperView ? {} : where,
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        designation: true,
-        departmentId: true,
-        department: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        managerId: true,
-        manager: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        createdAt: true,
-      },
+      select: toPublicUserSelect(),
     });
 
     return res.json(users);
@@ -241,28 +245,7 @@ export async function createUser(req, res) {
         ...(managerId ? { managerId } : {}),
         createdById: req.user.userId,
       },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        designation: true,
-        department: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        manager: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        createdAt: true,
-      },
+      select: toPublicUserSelect(),
     });
 
     emitCRMEvent("org:updated", {
@@ -335,28 +318,7 @@ export async function updateUserAssignment(req, res) {
           : {}),
         ...(typeof managerId === "string" ? { managerId: managerId || null } : {}),
       },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        designation: true,
-        department: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        manager: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        createdAt: true,
-      },
+      select: toPublicUserSelect(),
     });
 
     emitCRMEvent("org:updated", {
@@ -365,6 +327,137 @@ export async function updateUserAssignment(req, res) {
       role: user.role,
       managerId: user.manager?.id ?? null,
       departmentId: user.department?.id ?? null,
+    });
+
+    return res.json(user);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function getMyProfile(req, res) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: toPublicUserSelect(),
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json(user);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function updateMyProfile(req, res) {
+  try {
+    const { name, designation, password, email } = req.body;
+
+    if (typeof email === "string" && email.trim()) {
+      return res.status(403).json({
+        error: "Email change requires leadership approval. Contact your manager/admin.",
+      });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const nextName = typeof name === "string" ? name.trim() : "";
+    if (typeof name === "string" && !nextName) {
+      return res.status(400).json({ error: "Name cannot be empty" });
+    }
+
+    const data = {
+      ...(typeof name === "string" ? { name: nextName } : {}),
+      ...(typeof designation === "string" ? { designation } : {}),
+      ...(typeof password === "string" && password.trim()
+        ? { password: await bcrypt.hash(password.trim(), 10) }
+        : {}),
+    };
+
+    const user = await prisma.user.update({
+      where: { id: req.user.userId },
+      data,
+      select: toPublicUserSelect(),
+    });
+
+    emitCRMEvent("org:updated", {
+      type: "profile_updated",
+      userId: user.id,
+    });
+
+    return res.json(user);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function updateUserProfileByLeadership(req, res) {
+  try {
+    const { name, designation, email, password } = req.body;
+
+    const existing = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (existing.role === "SUPERADMIN" && req.user.role !== "SUPERADMIN") {
+      return res.status(403).json({ error: "Only the CEO can edit superadmin profile details" });
+    }
+
+    if (typeof email === "string" && email.trim()) {
+      const duplicate = await prisma.user.findUnique({
+        where: { email: email.trim() },
+        select: { id: true },
+      });
+
+      if (duplicate && duplicate.id !== req.params.id) {
+        return res.status(409).json({ error: "Email is already in use" });
+      }
+    }
+
+    const nextName = typeof name === "string" ? name.trim() : "";
+    if (typeof name === "string" && !nextName) {
+      return res.status(400).json({ error: "Name cannot be empty" });
+    }
+
+    const data = {
+      ...(typeof name === "string" ? { name: nextName } : {}),
+      ...(typeof designation === "string" ? { designation } : {}),
+      ...(typeof email === "string" && email.trim() ? { email: email.trim() } : {}),
+      ...(typeof password === "string" && password.trim()
+        ? { password: await bcrypt.hash(password.trim(), 10) }
+        : {}),
+    };
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data,
+      select: toPublicUserSelect(),
+    });
+
+    emitCRMEvent("org:updated", {
+      type: "profile_updated_by_leadership",
+      userId: user.id,
     });
 
     return res.json(user);
