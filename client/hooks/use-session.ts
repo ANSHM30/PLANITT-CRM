@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
+import { normalizeErrorMessage } from "@/lib/error-message";
 import type { CRMUser, UserRole } from "@/types/crm";
 
 type UseSessionOptions = {
@@ -49,7 +50,7 @@ export function useSession(options: UseSessionOptions = {}) {
       } catch (err) {
         clearToken();
         if (isMounted) {
-          setError(err instanceof Error ? err.message : "Authentication failed");
+          setError(normalizeErrorMessage(err, "Authentication failed"));
         }
         router.replace(redirectTo);
       } finally {

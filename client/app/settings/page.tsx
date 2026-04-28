@@ -1,0 +1,187 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { CRMShell } from "@/components/layout/crm-shell";
+import { StatePanel } from "@/components/shared/state-panel";
+import { useSession } from "@/hooks/use-session";
+import { apiGet, apiPut } from "@/lib/api";
+import type { CRMUser } from "@/types/crm";
+
+export default function SettingsPage() {
+  const { user, loading } = useSession();
+  const [profile, setProfile] = useState<CRMUser | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [form, setForm] = useState({
+    name: "",
+    designation: "",
+    password: "",
+  });
+
+  useEffect(() => {
+    async function loadProfile() {
+      try {
+        const data = await apiGet<CRMUser>("/users/me");
+        setProfile(data);
+        setForm({
+          name: data.name ?? "",
+          designation: data.designation ?? "",
+          password: "",
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load profile");
+      }
+    }
+
+    if (user) {
+      void loadProfile();
+    }
+  }, [user]);
+
+  const saveProfile = async () => {
+    try {
+      setSaving(true);
+      setError("");
+      setNotice("");
+      const updated = await apiPut<CRMUser>("/users/me/profile", {
+        name: form.name,
+        designation: form.designation,
+        ...(form.password.trim() ? { password: form.password } : {}),
+      });
+      setProfile(updated);
+      setForm((current) => ({ ...current, password: "" }));
+      setNotice("Profile updated successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update profile");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading || !user) {
+    return <StatePanel title="Loading settings" description="Preparing your account settings." />;
+  }
+
+  if (!profile) {
+    return (
+      <CRMShell user={user}>
+        <StatePanel title="Profile unavailable" description={error || "Unable to load profile details."} />
+      </CRMShell>
+    );
+  }
+
+  const emailPolicyMessage =
+    user.role === "SUPERADMIN"
+      ? "As Superadmin (CEO), you can change team emails from Team Management. Your own email is locked here to avoid accidental account lockout."
+      : "Contact your manager, admin, or superadmin for email changes.";
+
+  return (
+    <CRMShell user={user}>
+      <div className="space-y-4">
+        <section
+          className="rounded-[20px] border px-5 py-5"
+          style={{
+            background: "var(--surface)",
+            borderColor: "var(--border)",
+            boxShadow: "var(--shadow-soft)",
+          }}
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+            Account settings
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold text-[var(--text-main)]">Profile</h1>
+          <p className="mt-2 text-sm text-[var(--text-soft)]">
+            You can update your name, designation, and password here.
+          </p>
+        </section>
+
+        <section
+          className="rounded-[20px] border px-5 py-5"
+          style={{
+            background: "var(--surface)",
+            borderColor: "var(--border)",
+            boxShadow: "var(--shadow-soft)",
+          }}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4">
+              <label className="text-sm font-medium text-[var(--text-main)]">
+                Full name
+                <input
+                  className="mt-2 h-12 w-full rounded-2xl border px-4 outline-none"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text-main)" }}
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                />
+              </label>
+
+              <label className="text-sm font-medium text-[var(--text-main)]">
+                Designation
+                <input
+                  className="mt-2 h-12 w-full rounded-2xl border px-4 outline-none"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text-main)" }}
+                  value={form.designation}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, designation: event.target.value }))
+                  }
+                />
+              </label>
+
+              <label className="text-sm font-medium text-[var(--text-main)]">
+                New password (optional)
+                <input
+                  type="password"
+                  className="mt-2 h-12 w-full rounded-2xl border px-4 outline-none"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text-main)" }}
+                  value={form.password}
+                  onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
+                />
+              </label>
+            </div>
+
+            <div className="space-y-3">
+              <div
+                className="rounded-2xl border px-4 py-4"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-faint)]">
+                  Email policy
+                </p>
+                <p className="mt-2 text-sm text-[var(--text-soft)]">
+                  Your email cannot be changed from this page.
+                </p>
+                <p className="mt-2 text-sm text-[var(--text-soft)]">
+                  {emailPolicyMessage}
+                </p>
+              </div>
+
+              <div
+                className="rounded-2xl border px-4 py-4"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-faint)]">
+                  Current email
+                </p>
+                <p className="mt-2 text-sm font-medium text-[var(--text-main)]">{profile.email}</p>
+              </div>
+            </div>
+          </div>
+
+          {error ? <p className="mt-4 text-sm font-medium text-rose-600">{error}</p> : null}
+          {notice ? <p className="mt-4 text-sm font-medium text-emerald-600">{notice}</p> : null}
+
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void saveProfile()}
+            className="mt-6 rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-70"
+            style={{ background: "var(--accent-strong)" }}
+          >
+            {saving ? "Saving..." : "Save profile"}
+          </button>
+        </section>
+      </div>
+    </CRMShell>
+  );
+}

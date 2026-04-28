@@ -8,7 +8,7 @@ import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import type { CRMUser, Department, UserRole } from "@/types/crm";
 
-const roles: UserRole[] = ["EMPLOYEE", "INTERN", "MANAGER", "ADMIN"];
+const baseRoles: UserRole[] = ["EMPLOYEE", "INTERN", "MANAGER", "ADMIN"];
 
 function Surface({ children }: { children: ReactNode }) {
   return (
@@ -45,6 +45,10 @@ export default function EmployeesPage() {
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
   const [updatingId, setUpdatingId] = useState("");
+  const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({});
+  const [emailUpdatingId, setEmailUpdatingId] = useState("");
+  const availableRoles: UserRole[] =
+    user?.role === "SUPERADMIN" ? ["SUPERADMIN", ...baseRoles] : baseRoles;
 
   const fieldStyle = {
     borderColor: "var(--border)",
@@ -59,6 +63,12 @@ export default function EmployeesPage() {
     ]);
     setUsers(members);
     setDepartments(departmentData);
+    setEmailDrafts(
+      members.reduce<Record<string, string>>((acc, member) => {
+        acc[member.id] = member.email;
+        return acc;
+      }, {})
+    );
   };
 
   useEffect(() => {
@@ -130,6 +140,28 @@ export default function EmployeesPage() {
       setError(err instanceof Error ? err.message : "Failed to update assignment");
     } finally {
       setUpdatingId("");
+    }
+  };
+
+  const updateMemberEmail = async (member: CRMUser) => {
+    const nextEmail = emailDrafts[member.id]?.trim();
+    if (!nextEmail || nextEmail === member.email) {
+      return;
+    }
+
+    try {
+      setEmailUpdatingId(member.id);
+      setError("");
+      setNotice("");
+      await apiPut(`/users/${member.id}/profile`, {
+        email: nextEmail,
+      });
+      await loadTeam();
+      setNotice("Email updated successfully.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update email");
+    } finally {
+      setEmailUpdatingId("");
     }
   };
 
@@ -217,7 +249,7 @@ export default function EmployeesPage() {
                     setForm((current) => ({ ...current, role: event.target.value as UserRole }))
                   }
                 >
-                  {roles.map((role) => (
+                  {availableRoles.map((role) => (
                     <option key={role} value={role}>
                       {role}
                     </option>
@@ -310,7 +342,42 @@ export default function EmployeesPage() {
                           {member.designation || "No designation"}
                         </div>
                       </td>
-                      <td className="px-5 py-4">{member.email}</td>
+                      <td className="px-5 py-4">
+                        {user.role === "SUPERADMIN" || user.role === "ADMIN" ? (
+                          <div className="flex min-w-[260px] items-center gap-2">
+                            <input
+                              className="h-9 flex-1 rounded-xl border px-3 text-xs outline-none"
+                              style={fieldStyle}
+                              value={emailDrafts[member.id] ?? member.email}
+                              disabled={
+                                emailUpdatingId === member.id ||
+                                (member.role === "SUPERADMIN" && user.role !== "SUPERADMIN")
+                              }
+                              onChange={(event) =>
+                                setEmailDrafts((current) => ({
+                                  ...current,
+                                  [member.id]: event.target.value,
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                              style={{ background: "var(--accent-strong)" }}
+                              disabled={
+                                emailUpdatingId === member.id ||
+                                (member.role === "SUPERADMIN" && user.role !== "SUPERADMIN") ||
+                                (emailDrafts[member.id] ?? member.email).trim() === member.email
+                              }
+                              onClick={() => void updateMemberEmail(member)}
+                            >
+                              {emailUpdatingId === member.id ? "Saving..." : "Update"}
+                            </button>
+                          </div>
+                        ) : (
+                          member.email
+                        )}
+                      </td>
                       <td className="px-5 py-4">
                         {user.role === "MANAGER" || member.role === "SUPERADMIN" ? (
                           <span
@@ -329,7 +396,7 @@ export default function EmployeesPage() {
                               void assignEmployee(member, "role", event.target.value)
                             }
                           >
-                            {roles.map((role) => (
+                            {availableRoles.map((role) => (
                               <option key={role} value={role}>
                                 {role}
                               </option>

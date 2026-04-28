@@ -54,6 +54,34 @@ export type CRMUser = {
   createdAt?: string;
 };
 
+export type ChatRoom = {
+  id: string;
+  type: "DEPARTMENT" | "PROJECT";
+  name: string;
+  subtitle: string;
+  department?: Department | null;
+};
+
+export type ChatRoomsResponse = {
+  departments: ChatRoom[];
+  projects: ChatRoom[];
+};
+
+export type ChatMessage = {
+  id: string;
+  channelType: ChatRoom["type"];
+  departmentId?: string | null;
+  projectId?: string | null;
+  content: string;
+  createdAt: string;
+  author: {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+  };
+};
+
 export type AssignedUser = {
   id: string;
   name: string;
@@ -229,6 +257,9 @@ export type DashboardSummary = AdminDashboardSummary | EmployeeDashboardSummary;
 
 export type GoogleWorkspaceStatus = {
   connected: boolean;
+  oauthConfigured?: boolean;
+  setupRequired?: boolean;
+  setupMessage?: string;
   workspaceEmail: string | null;
   services: {
     meet: boolean;
@@ -250,6 +281,46 @@ export type GoogleWorkspaceStatus = {
     source: string;
     crmUseCase: string;
   }>;
+};
+
+export type GoogleMeetSessionResult = {
+  service: "meet";
+  title: string;
+  eventId: string;
+  eventUrl: string | null;
+  meetUrl: string | null;
+  startAt: string;
+  endAt: string;
+  attendeeCount: number;
+  project: {
+    id: string;
+    name: string;
+  };
+};
+
+export type GoogleProjectSheetResult = {
+  service: "sheets";
+  title: string;
+  spreadsheetId: string;
+  spreadsheetUrl: string;
+  rowCount: number;
+  project: {
+    id: string;
+    name: string;
+  };
+};
+
+export type GoogleDriveFolderResult = {
+  service: "drive";
+  title: string;
+  folderId: string;
+  folderUrl: string | null;
+  summaryFileId: string;
+  summaryFileUrl: string | null;
+  project: {
+    id: string;
+    name: string;
+  };
 };
 
 export type UserAnalyticsSummary = {

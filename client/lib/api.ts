@@ -1,4 +1,5 @@
 import { getToken } from "./auth";
+import { normalizeErrorMessage } from "./error-message";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
@@ -13,10 +14,11 @@ async function parseResponse<T>(response: Response): Promise<T> {
   const payload = isJson ? await response.json() : null;
 
   if (!response.ok) {
-    const error = new Error(
-      (payload as { error?: string } | null)?.error ??
-        `API request failed with status ${response.status}`
-    ) as ApiError;
+    const errorMessage = normalizeErrorMessage(
+      (payload as { error?: unknown } | null)?.error,
+      `API request failed with status ${response.status}`
+    );
+    const error = new Error(errorMessage) as ApiError;
 
     error.status = response.status;
     throw error;

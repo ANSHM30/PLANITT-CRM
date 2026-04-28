@@ -28,6 +28,8 @@ export function CRMShell({ children, user }: CRMShellProps) {
   const navItems = [
     { href: "/dashboard", label: "Overview" },
     { href: "/tasks", label: "Tasks" },
+    { href: "/chat", label: "Chat" },
+    { href: "/settings", label: "Settings" },
     ...(user.role === "SUPERADMIN" || user.role === "ADMIN" || user.role === "MANAGER"
       ? [{ href: "/projects", label: "Projects" }]
       : []),

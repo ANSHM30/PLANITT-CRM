@@ -7,16 +7,22 @@ import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
-import { apiDelete, apiGet } from "@/lib/api";
+import { apiDelete, apiGet, apiPost } from "@/lib/api";
+import { normalizeErrorMessage } from "@/lib/error-message";
 import type {
   CRMUser,
   DashboardSummary,
   EmployeeDashboardSummary,
+  GoogleDriveFolderResult,
+  GoogleMeetSessionResult,
+  GoogleProjectSheetResult,
   GoogleWorkspaceStatus,
+  Project,
   UserAnalyticsSummary,
 } from "@/types/crm";
 
 type DashboardTab = "overview" | "analytics" | "departments" | "workspace" | "activity";
+type WorkspaceActionLoading = "" | "meet" | "sheets" | "drive";
 
 function Surface({
   children,
@@ -41,6 +47,10 @@ function Surface({
 
 function formatRole(role: CRMUser["role"]) {
   return role.charAt(0) + role.slice(1).toLowerCase();
+}
+
+function canUseGoogleWorkspace(scope: DashboardSummary["scope"]) {
+  return scope === "superadmin" || scope === "admin";
 }
 
 function getInitials(name: string) {
@@ -709,14 +719,40 @@ function GoogleWorkspacePanel({
   status,
   loading,
   message,
+  projects,
+  users,
+  selectedProjectId,
+  selectedAttendeeIds,
+  actionLoading,
+  meetResult,
+  sheetResult,
+  driveResult,
+  onSelectProject,
+  onToggleAttendee,
   onConnect,
   onDisconnect,
+  onCreateMeet,
+  onCreateSheet,
+  onCreateDriveFolder,
 }: {
   status: GoogleWorkspaceStatus | null;
   loading: boolean;
   message: string;
+  projects: Project[];
+  users: CRMUser[];
+  selectedProjectId: string;
+  selectedAttendeeIds: string[];
+  actionLoading: WorkspaceActionLoading;
+  meetResult: GoogleMeetSessionResult | null;
+  sheetResult: GoogleProjectSheetResult | null;
+  driveResult: GoogleDriveFolderResult | null;
+  onSelectProject: (projectId: string) => void;
+  onToggleAttendee: (userId: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onCreateMeet: () => void;
+  onCreateSheet: () => void;
+  onCreateDriveFolder: () => void;
 }) {
   if (loading) {
     return (
@@ -727,16 +763,46 @@ function GoogleWorkspacePanel({
     );
   }
 
+  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  const workspaceReady = Boolean(status?.connected);
+  const workspaceBadgeLabel = status?.connected
+    ? "Connected"
+    : status?.setupRequired
+      ? "Setup Required"
+      : status && status.oauthConfigured === false
+        ? "OAuth Not Configured"
+        : "Not Connected";
+  const workspaceBadgeStyles = status?.connected
+    ? { background: "color-mix(in srgb, var(--success) 16%, var(--surface))", color: "var(--success)" }
+    : status?.setupRequired
+      ? { background: "color-mix(in srgb, #f59e0b 16%, var(--surface))", color: "#b45309" }
+      : status && status.oauthConfigured === false
+        ? { background: "color-mix(in srgb, #ef4444 16%, var(--surface))", color: "#b91c1c" }
+        : { background: "var(--surface-soft)", color: "var(--text-soft)" };
+
   return (
     <div className="space-y-4">
       {message ? <StatePanel title="Workspace update" description={message} /> : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <Surface className="p-5">
-          <p className="text-sm font-semibold text-[var(--text-main)]">Google Workspace connection</p>
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-semibold text-[var(--text-main)]">Google Workspace connection</p>
+            <span
+              className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={workspaceBadgeStyles}
+            >
+              {workspaceBadgeLabel}
+            </span>
+          </div>
           <p className="mt-1 text-sm text-[var(--text-soft)]">
             Connect once with Google Auth and manage Meet, Sheets, and Drive directly from CRM workflows.
           </p>
+          {status?.setupRequired ? (
+            <p className="mt-2 text-xs font-medium text-amber-700">
+              {status.setupMessage || "Workspace setup is incomplete. Run migrations and recheck status."}
+            </p>
+          ) : null}
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {[
               { key: "meet", label: "Google Meet", connected: status?.services.meet ?? false },
@@ -805,6 +871,243 @@ function GoogleWorkspacePanel({
         </Surface>
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Surface className="p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-[var(--text-main)]">Workspace actions</p>
+              <p className="mt-1 text-sm text-[var(--text-soft)]">
+                Launch Google Meet sessions, project Sheets, and Drive folders directly from CRM data.
+              </p>
+            </div>
+            <span
+              className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{
+                background: workspaceReady
+                  ? "color-mix(in srgb, var(--success) 14%, var(--surface))"
+                  : "var(--surface-soft)",
+                color: workspaceReady ? "var(--success)" : "var(--text-soft)",
+              }}
+            >
+              {workspaceReady ? "Ready" : "Connect first"}
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                  Project
+                </label>
+                <select
+                  value={selectedProjectId}
+                  onChange={(event) => onSelectProject(event.target.value)}
+                  className="mt-2 h-12 w-full rounded-2xl border px-4 text-sm outline-none"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: "var(--surface-soft)",
+                    color: "var(--text-main)",
+                  }}
+                >
+                  <option value="">Select a project</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-3">
+                <button
+                  type="button"
+                  onClick={onCreateMeet}
+                  disabled={!workspaceReady || !selectedProjectId || actionLoading === "meet"}
+                  className="rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ background: "var(--accent)" }}
+                >
+                  {actionLoading === "meet" ? "Creating Meet session..." : "Create Meet session"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCreateSheet}
+                  disabled={!workspaceReady || !selectedProjectId || actionLoading === "sheets"}
+                  className="rounded-2xl border px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                >
+                  {actionLoading === "sheets" ? "Exporting Sheet..." : "Export project to Sheets"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onCreateDriveFolder}
+                  disabled={!workspaceReady || !selectedProjectId || actionLoading === "drive"}
+                  className="rounded-2xl border px-4 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                >
+                  {actionLoading === "drive" ? "Creating Drive folder..." : "Create Drive workspace"}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                  Selected project snapshot
+                </p>
+                {selectedProject ? (
+                  <>
+                    <p className="mt-3 text-lg font-semibold text-[var(--text-main)]">{selectedProject.name}</p>
+                    <p className="mt-1 text-sm text-[var(--text-soft)]">
+                      {selectedProject.department?.name || "No department"} | Owner: {selectedProject.owner?.name || "Not assigned"}
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Progress</p>
+                        <p className="mt-1 text-base font-semibold text-[var(--text-main)]">{selectedProject.progress}%</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Tasks</p>
+                        <p className="mt-1 text-base font-semibold text-[var(--text-main)]">{selectedProject.taskCounts.total}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Open</p>
+                        <p className="mt-1 text-base font-semibold text-[var(--text-main)]">
+                          {selectedProject.taskCounts.todo + selectedProject.taskCounts.inProgress}
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-3 text-sm text-[var(--text-soft)]">
+                    Choose a project to generate Google Workspace assets around it.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                    Meet attendees
+                  </p>
+                  <span className="text-xs text-[var(--text-soft)]">{selectedAttendeeIds.length} selected</span>
+                </div>
+                <div className="mt-3 grid max-h-52 gap-2 overflow-y-auto pr-1">
+                  {users.map((member) => {
+                    const active = selectedAttendeeIds.includes(member.id);
+                    return (
+                      <label
+                        key={member.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-sm"
+                        style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-[var(--text-main)]">{member.name}</p>
+                          <p className="truncate text-xs text-[var(--text-soft)]">{member.email}</p>
+                        </div>
+                        <input type="checkbox" checked={active} onChange={() => onToggleAttendee(member.id)} />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Surface>
+
+        <Surface className="p-5">
+          <p className="text-sm font-semibold text-[var(--text-main)]">Latest generated assets</p>
+          <div className="mt-4 space-y-3">
+            {meetResult ? (
+              <article className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                <p className="text-sm font-semibold text-[var(--text-main)]">Meet session ready</p>
+                <p className="mt-1 text-sm text-[var(--text-soft)]">
+                  {meetResult.project.name} | {new Date(meetResult.startAt).toLocaleString()}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {meetResult.meetUrl ? (
+                    <a
+                      href={meetResult.meetUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl px-3 py-2 text-sm font-semibold text-white"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      Open Meet
+                    </a>
+                  ) : null}
+                  {meetResult.eventUrl ? (
+                    <a
+                      href={meetResult.eventUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border px-3 py-2 text-sm font-semibold"
+                      style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                    >
+                      Open Calendar event
+                    </a>
+                  ) : null}
+                </div>
+              </article>
+            ) : null}
+
+            {sheetResult ? (
+              <article className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                <p className="text-sm font-semibold text-[var(--text-main)]">Sheet exported</p>
+                <p className="mt-1 text-sm text-[var(--text-soft)]">
+                  {sheetResult.project.name} | {sheetResult.rowCount} rows written
+                </p>
+                <a
+                  href={sheetResult.spreadsheetUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex rounded-xl px-3 py-2 text-sm font-semibold text-white"
+                  style={{ background: "var(--accent)" }}
+                >
+                  Open Sheet
+                </a>
+              </article>
+            ) : null}
+
+            {driveResult ? (
+              <article className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                <p className="text-sm font-semibold text-[var(--text-main)]">Drive workspace created</p>
+                <p className="mt-1 text-sm text-[var(--text-soft)]">{driveResult.project.name}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {driveResult.folderUrl ? (
+                    <a
+                      href={driveResult.folderUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl px-3 py-2 text-sm font-semibold text-white"
+                      style={{ background: "var(--accent)" }}
+                    >
+                      Open folder
+                    </a>
+                  ) : null}
+                  {driveResult.summaryFileUrl ? (
+                    <a
+                      href={driveResult.summaryFileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl border px-3 py-2 text-sm font-semibold"
+                      style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                    >
+                      Open summary file
+                    </a>
+                  ) : null}
+                </div>
+              </article>
+            ) : null}
+
+            {!meetResult && !sheetResult && !driveResult ? (
+              <p className="text-sm text-[var(--text-soft)]">
+                Generated Google assets will appear here after you run a Workspace action.
+              </p>
+            ) : null}
+          </div>
+        </Surface>
+      </div>
+
       <Surface className="p-5">
         <p className="text-sm font-semibold text-[var(--text-main)]">Recommended Google Workspace analytics for CRM</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -836,6 +1139,14 @@ export default function DashboardPage() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [workspaceStatus, setWorkspaceStatus] = useState<GoogleWorkspaceStatus | null>(null);
+  const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
+  const [workspaceUsers, setWorkspaceUsers] = useState<CRMUser[]>([]);
+  const [selectedWorkspaceProjectId, setSelectedWorkspaceProjectId] = useState("");
+  const [selectedWorkspaceAttendeeIds, setSelectedWorkspaceAttendeeIds] = useState<string[]>([]);
+  const [workspaceActionLoading, setWorkspaceActionLoading] = useState<WorkspaceActionLoading>("");
+  const [meetResult, setMeetResult] = useState<GoogleMeetSessionResult | null>(null);
+  const [sheetResult, setSheetResult] = useState<GoogleProjectSheetResult | null>(null);
+  const [driveResult, setDriveResult] = useState<GoogleDriveFolderResult | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState("");
   const [error, setError] = useState("");
@@ -875,7 +1186,7 @@ export default function DashboardPage() {
         setSummary(data);
         setError("");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load dashboard");
+        setError(normalizeErrorMessage(err, "Failed to load dashboard"));
       }
     }
 
@@ -902,7 +1213,7 @@ export default function DashboardPage() {
         setTeamMembers(visibleMembers);
         setSelectedMemberId((current) => current || visibleMembers[0]?.id || "");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load team members");
+        setError(normalizeErrorMessage(err, "Failed to load team members"));
       } finally {
         setTeamLoading(false);
       }
@@ -923,7 +1234,7 @@ export default function DashboardPage() {
         const data = await apiGet<UserAnalyticsSummary>(`/users/${selectedMemberId}/analytics`);
         setSelectedAnalytics(data);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load member analytics");
+        setError(normalizeErrorMessage(err, "Failed to load member analytics"));
       } finally {
         setAnalyticsLoading(false);
       }
@@ -934,17 +1245,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function loadWorkspaceStatus() {
-      if (summary?.scope !== "superadmin") {
+      if (!summary || !canUseGoogleWorkspace(summary.scope)) {
         setWorkspaceStatus(null);
+        setWorkspaceProjects([]);
+        setWorkspaceUsers([]);
+        setSelectedWorkspaceProjectId("");
+        setSelectedWorkspaceAttendeeIds([]);
         return;
       }
 
       try {
         setWorkspaceLoading(true);
-        const data = await apiGet<GoogleWorkspaceStatus>("/integrations/google/status");
-        setWorkspaceStatus(data);
+        const [statusData, projectData, userData] = await Promise.all([
+          apiGet<GoogleWorkspaceStatus>("/integrations/google/status"),
+          apiGet<Project[]>("/projects"),
+          apiGet<CRMUser[]>("/users"),
+        ]);
+        setWorkspaceStatus(statusData);
+        setWorkspaceProjects(projectData);
+        setWorkspaceUsers(userData);
+        setSelectedWorkspaceProjectId((current) => current || projectData[0]?.id || "");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load Google Workspace status");
+        setWorkspaceStatus(null);
+        setWorkspaceProjects([]);
+        setWorkspaceUsers([]);
+        setWorkspaceMessage(
+          normalizeErrorMessage(err, "Failed to load Google Workspace status")
+        );
       } finally {
         setWorkspaceLoading(false);
       }
@@ -986,11 +1313,29 @@ export default function DashboardPage() {
         }
       }
 
-      if (freshSummary.scope === "superadmin") {
-        const workspace = await apiGet<GoogleWorkspaceStatus>("/integrations/google/status");
-        setWorkspaceStatus(workspace);
+      if (canUseGoogleWorkspace(freshSummary.scope)) {
+        try {
+          const [workspace, projects, users] = await Promise.all([
+            apiGet<GoogleWorkspaceStatus>("/integrations/google/status"),
+            apiGet<Project[]>("/projects"),
+            apiGet<CRMUser[]>("/users"),
+          ]);
+          setWorkspaceStatus(workspace);
+          setWorkspaceProjects(projects);
+          setWorkspaceUsers(users);
+          setSelectedWorkspaceProjectId((current) => current || projects[0]?.id || "");
+        } catch (err) {
+          setWorkspaceStatus(null);
+          setWorkspaceProjects([]);
+          setWorkspaceUsers([]);
+          setWorkspaceMessage(
+            normalizeErrorMessage(err, "Failed to refresh Google Workspace status")
+          );
+        }
       } else {
         setWorkspaceStatus(null);
+        setWorkspaceProjects([]);
+        setWorkspaceUsers([]);
       }
     }
   );
@@ -1111,7 +1456,7 @@ export default function DashboardPage() {
     { id: "overview", label: "Overview" },
     { id: "analytics", label: "Analytics" },
     ...(summary.scope === "superadmin" ? [{ id: "departments" as DashboardTab, label: "Departments" }] : []),
-    ...(summary.scope === "superadmin" ? [{ id: "workspace" as DashboardTab, label: "Workspace" }] : []),
+    ...(canUseGoogleWorkspace(summary.scope) ? [{ id: "workspace" as DashboardTab, label: "Workspace" }] : []),
     { id: "activity", label: "Activity" },
   ];
 
@@ -1131,7 +1476,7 @@ export default function DashboardPage() {
       const data = await apiGet<{ authUrl: string }>("/integrations/google/auth-url?services=meet,sheets,drive");
       window.location.href = data.authUrl;
     } catch (err) {
-      setWorkspaceMessage(err instanceof Error ? err.message : "Failed to start Google Auth flow.");
+      setWorkspaceMessage(normalizeErrorMessage(err, "Failed to start Google Auth flow."));
     }
   };
 
@@ -1139,10 +1484,60 @@ export default function DashboardPage() {
     try {
       await apiDelete<void>("/integrations/google/disconnect");
       setWorkspaceMessage("Google Workspace disconnected.");
+      setMeetResult(null);
+      setSheetResult(null);
+      setDriveResult(null);
       const refreshed = await apiGet<GoogleWorkspaceStatus>("/integrations/google/status");
       setWorkspaceStatus(refreshed);
     } catch (err) {
-      setWorkspaceMessage(err instanceof Error ? err.message : "Failed to disconnect Google Workspace.");
+      setWorkspaceMessage(normalizeErrorMessage(err, "Failed to disconnect Google Workspace."));
+    }
+  };
+
+  const toggleWorkspaceAttendee = (userId: string) => {
+    setSelectedWorkspaceAttendeeIds((current) =>
+      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]
+    );
+  };
+
+  const runWorkspaceAction = async (service: WorkspaceActionLoading) => {
+    if (!selectedWorkspaceProjectId) {
+      setWorkspaceMessage("Pick a project before creating a Google Workspace asset.");
+      return;
+    }
+
+    try {
+      setWorkspaceActionLoading(service);
+      setWorkspaceMessage("");
+
+      if (service === "meet") {
+        const result = await apiPost<GoogleMeetSessionResult>("/integrations/google/meet/session", {
+          projectId: selectedWorkspaceProjectId,
+          attendeeUserIds: selectedWorkspaceAttendeeIds,
+        });
+        setMeetResult(result);
+        setWorkspaceMessage(`Meet session created for ${result.project.name}.`);
+      }
+
+      if (service === "sheets") {
+        const result = await apiPost<GoogleProjectSheetResult>("/integrations/google/sheets/project-report", {
+          projectId: selectedWorkspaceProjectId,
+        });
+        setSheetResult(result);
+        setWorkspaceMessage(`Project report exported to Google Sheets for ${result.project.name}.`);
+      }
+
+      if (service === "drive") {
+        const result = await apiPost<GoogleDriveFolderResult>("/integrations/google/drive/project-folder", {
+          projectId: selectedWorkspaceProjectId,
+        });
+        setDriveResult(result);
+        setWorkspaceMessage(`Drive workspace created for ${result.project.name}.`);
+      }
+    } catch (err) {
+      setWorkspaceMessage(normalizeErrorMessage(err, "Google Workspace action failed."));
+    } finally {
+      setWorkspaceActionLoading("");
     }
   };
 
@@ -1424,16 +1819,29 @@ export default function DashboardPage() {
         ) : null}
 
         {activeTab === "workspace" ? (
-          summary.scope === "superadmin" ? (
+          canUseGoogleWorkspace(summary.scope) ? (
             <GoogleWorkspacePanel
               status={workspaceStatus}
               loading={workspaceLoading}
               message={workspaceMessage}
+              projects={workspaceProjects}
+              users={workspaceUsers}
+              selectedProjectId={selectedWorkspaceProjectId}
+              selectedAttendeeIds={selectedWorkspaceAttendeeIds}
+              actionLoading={workspaceActionLoading}
+              meetResult={meetResult}
+              sheetResult={sheetResult}
+              driveResult={driveResult}
+              onSelectProject={setSelectedWorkspaceProjectId}
+              onToggleAttendee={toggleWorkspaceAttendee}
               onConnect={handleGoogleConnect}
               onDisconnect={handleGoogleDisconnect}
+              onCreateMeet={() => void runWorkspaceAction("meet")}
+              onCreateSheet={() => void runWorkspaceAction("sheets")}
+              onCreateDriveFolder={() => void runWorkspaceAction("drive")}
             />
           ) : (
-            <StatePanel title="Workspace tab unavailable" description="Only Superadmin can connect Google Workspace." />
+            <StatePanel title="Workspace tab unavailable" description="Only admins can connect Google Workspace." />
           )
         ) : null}
 
