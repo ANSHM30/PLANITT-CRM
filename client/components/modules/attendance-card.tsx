@@ -52,30 +52,48 @@ export function AttendanceCard({ initialCheckedIn = false }: AttendanceCardProps
 
   return (
     <div
-      className="rounded-[20px] border p-5"
+      className="overflow-hidden rounded-lg border p-5"
       style={{
-        background: "var(--surface)",
+        background:
+          "linear-gradient(145deg, var(--surface) 0%, color-mix(in srgb, var(--surface-soft) 86%, var(--accent) 14%) 100%)",
         borderColor: "var(--border)",
         boxShadow: "var(--shadow-soft)",
       }}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>
-          <p className="text-sm font-medium text-[var(--text-soft)]">Attendance</p>
-          <h3 className="mt-1 text-lg font-semibold text-[var(--text-main)]">
-            {checkedIn ? "You're active for today" : "Ready to start work?"}
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+            Attendance
+          </p>
+          <h3 className="mt-2 text-2xl font-bold tracking-tight text-[var(--text-main)]">
+            {checkedIn ? "Checked in" : "Ready to start?"}
           </h3>
-          <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">{message}</p>
+          <p className="mt-2 max-w-md text-sm leading-6 text-[var(--text-soft)]">{message}</p>
+          <div className="mt-4 grid max-w-sm grid-cols-3 gap-2">
+            {["Check in", "Focus", "Checkout"].map((label, index) => (
+              <div
+                key={label}
+                className="rounded-md border px-3 py-2 text-center"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
+                  {label}
+                </p>
+                <p className="mt-1 text-xs font-bold text-[var(--text-main)]">
+                  {index === 0 && checkedIn ? "Done" : index === 2 && !checkedIn ? "Later" : "Now"}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
 
         <button
           type="button"
           onClick={handleAttendance}
           disabled={loading}
-          className="rounded-2xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-70"
-          style={{ background: "var(--accent-strong)" }}
+          className="crm-gradient-button mx-auto flex h-36 w-36 items-center justify-center rounded-full text-center text-base font-bold transition disabled:cursor-wait disabled:opacity-70"
         >
-          {loading ? "Please wait..." : checkedIn ? "Check out" : "Check in"}
+          {loading ? "Please wait" : checkedIn ? "Check out" : "Check in"}
         </button>
       </div>
     </div>

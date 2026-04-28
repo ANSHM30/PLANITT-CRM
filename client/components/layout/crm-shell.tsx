@@ -12,6 +12,12 @@ type CRMShellProps = {
   user: CRMUser;
 };
 
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+};
+
 const roleLabel: Record<CRMUser["role"], string> = {
   SUPERADMIN: "CEO",
   ADMIN: "Admin",
@@ -20,25 +26,44 @@ const roleLabel: Record<CRMUser["role"], string> = {
   INTERN: "Intern",
 };
 
+const pageTitles: Record<string, string> = {
+  "/dashboard": "Dashboard",
+  "/projects": "Projects",
+  "/tasks": "Tasks",
+  "/employees": "Employees",
+  "/departments": "Departments",
+  "/chat": "Chats",
+  "/settings": "Settings",
+};
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 export function CRMShell({ children, user }: CRMShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
 
-  const navItems = [
-    { href: "/dashboard", label: "Overview" },
-    { href: "/tasks", label: "Tasks" },
-    { href: "/chat", label: "Chat" },
-    { href: "/settings", label: "Settings" },
+  const navItems: NavItem[] = [
+    { href: "/dashboard", label: "Dashboard", icon: "D" },
     ...(user.role === "SUPERADMIN" || user.role === "ADMIN" || user.role === "MANAGER"
-      ? [{ href: "/projects", label: "Projects" }]
+      ? [{ href: "/projects", label: "Projects", icon: "P" }]
       : []),
+    { href: "/tasks", label: "Tasks", icon: "T" },
     ...(user.role === "SUPERADMIN" || user.role === "ADMIN" || user.role === "MANAGER"
-      ? [{ href: "/employees", label: "Team" }]
+      ? [{ href: "/employees", label: "Employees", icon: "E" }]
       : []),
     ...(user.role === "SUPERADMIN" || user.role === "ADMIN"
-      ? [{ href: "/departments", label: "Departments" }]
+      ? [{ href: "/departments", label: "Departments", icon: "O" }]
       : []),
+    { href: "/chat", label: "Chats", icon: "C" },
+    { href: "/settings", label: "Settings", icon: "S" },
   ];
 
   const handleLogout = () => {
@@ -60,45 +85,47 @@ export function CRMShell({ children, user }: CRMShellProps) {
     setTheme(nextTheme);
   };
 
+  const darkWorkspace = ["/tasks", "/projects"].some((route) => pathname.startsWith(route));
+  const pageTitle = pageTitles[pathname] ?? "CRM";
+
   return (
-    <div className="min-h-screen text-[var(--text-main)]">
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col gap-4 px-3 py-3 lg:flex-row lg:px-5">
+    <div
+      className={`min-h-screen text-[var(--text-main)] ${darkWorkspace ? "crm-shell-dark" : ""}`}
+      style={{
+        background:
+          "linear-gradient(135deg, color-mix(in srgb, var(--app-bg) 92%, white), var(--app-bg-accent))",
+      }}
+    >
+      <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col gap-3 px-3 py-3 lg:flex-row">
         <aside
-          className="w-full rounded-2xl border px-4 py-4 lg:sticky lg:top-4 lg:h-[calc(100vh-2rem)] lg:w-[278px]"
+          className="w-full overflow-hidden rounded-lg border px-3 py-3 lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)] lg:w-[214px] lg:shrink-0"
           style={{
-            background:
-              "linear-gradient(180deg, var(--sidebar) 0%, color-mix(in srgb, var(--sidebar) 88%, #0f766e) 100%)",
-            borderColor: "rgba(255,255,255,0.08)",
+            background: darkWorkspace
+              ? "linear-gradient(180deg, #071120 0%, #0b1626 100%)"
+              : "linear-gradient(180deg, #356bff 0%, #063ce9 100%)",
+            borderColor: "rgba(255,255,255,0.14)",
             color: "#f8fafc",
-            boxShadow: "0 22px 52px rgba(20, 32, 29, 0.22)",
+            boxShadow: darkWorkspace
+              ? "0 18px 44px rgba(0,0,0,0.34)"
+              : "0 18px 44px rgba(31,85,255,0.25)",
           }}
         >
           <div className="flex h-full flex-col">
             <div>
-              <div className="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-slate-300">
-                Planitt CRM
-              </div>
-              <div className="mt-5 rounded-xl bg-white/[0.07] p-4 ring-1 ring-white/10">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Signed in as</p>
-                <h1 className="mt-2 text-xl font-semibold">{user.name}</h1>
-                <p className="mt-1 text-sm text-slate-300">{user.email}</p>
-                <span className="mt-3 inline-flex rounded-lg bg-emerald-400/15 px-3 py-1 text-[11px] font-medium text-emerald-200">
-                  {roleLabel[user.role]}
-                </span>
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  className="mt-4 flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 transition hover:bg-white/10"
-                >
-                  <span>{theme === "light" ? "Light mode" : "Dark mode"}</span>
-                  <span className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                    Switch
-                  </span>
-                </button>
+              <div className="flex items-center gap-2 px-1 py-1">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-sm font-black text-blue-600">
+                  P
+                </div>
+                <div>
+                  <p className="text-sm font-bold leading-none text-white">Planitt CRM</p>
+                  <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.16em] text-white/55">
+                    CRM Pro
+                  </p>
+                </div>
               </div>
             </div>
 
-            <nav className="mt-6 space-y-1.5">
+            <nav className="mt-6 space-y-1">
               {navItems.map((item) => {
                 const isActive = pathname === item.href;
 
@@ -106,29 +133,49 @@ export function CRMShell({ children, user }: CRMShellProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center justify-between rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                    className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-semibold transition ${
                       isActive
-                        ? "bg-white text-slate-950 shadow-sm"
-                        : "text-slate-300 hover:bg-white/10 hover:text-white"
+                        ? darkWorkspace
+                          ? "bg-blue-500/22 text-white shadow-sm"
+                          : "bg-white text-blue-700 shadow-sm"
+                        : "text-white/78 hover:bg-white/10 hover:text-white"
                     }`}
                   >
-                    <span>{item.label}</span>
-                    <span className="text-xs uppercase tracking-[0.2em] opacity-60">
-                      {isActive ? "Live" : "Go"}
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded text-[10px] font-black ${
+                        isActive ? "bg-blue-600 text-white" : "bg-white/10 text-white/80"
+                      }`}
+                    >
+                      {item.icon}
                     </span>
+                    <span>{item.label}</span>
                   </Link>
                 );
               })}
             </nav>
 
-            <div className="mt-auto rounded-xl border border-white/10 bg-white/5 p-4">
-              <p className="text-sm text-slate-300">
-                Cleaner workspace, calmer colors, and focused modules for daily operations.
-              </p>
+            <div className="mt-auto rounded-lg border border-white/12 bg-white/8 p-3">
+              <div className="flex items-center gap-3">
+                <div className="crm-avatar flex h-9 w-9 items-center justify-center rounded-full text-xs font-bold">
+                  {initials(user.name)}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">{user.name}</p>
+                  <p className="text-xs text-white/60">{roleLabel[user.role]}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="mt-3 flex w-full items-center justify-between rounded-md border border-white/10 bg-white/7 px-3 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/12"
+              >
+                <span>{theme === "light" ? "Light" : "Dark"} mode</span>
+                <span>Switch</span>
+              </button>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="mt-4 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
+                className="mt-2 w-full rounded-md bg-white px-3 py-2 text-xs font-bold text-slate-950 transition hover:bg-slate-100"
               >
                 Log out
               </button>
@@ -136,7 +183,49 @@ export function CRMShell({ children, user }: CRMShellProps) {
           </div>
         </aside>
 
-        <main className="flex-1">{children}</main>
+        <main className="min-w-0 flex-1">
+          <header
+            className="mb-3 flex flex-col gap-3 rounded-lg border px-4 py-3 md:flex-row md:items-center md:justify-between"
+            style={{
+              background: "var(--surface)",
+              borderColor: "var(--border)",
+              boxShadow: "var(--shadow-card)",
+            }}
+          >
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                CRM Pro
+              </p>
+              <h1 className="mt-1 text-xl font-bold text-[var(--text-main)]">{pageTitle}</h1>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <label className="relative block">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-faint)]">
+                  Search
+                </span>
+                <input
+                  aria-label="Search CRM"
+                  className="crm-input h-10 w-full rounded-md pl-16 pr-3 text-sm sm:w-72"
+                  placeholder="Search anything..."
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="flex h-10 w-10 items-center justify-center rounded-md border text-sm font-bold"
+                  style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-soft)" }}
+                  aria-label="Notifications"
+                >
+                  !
+                </button>
+                <div className="crm-avatar flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold">
+                  {initials(user.name)}
+                </div>
+              </div>
+            </div>
+          </header>
+          {children}
+        </main>
       </div>
     </div>
   );

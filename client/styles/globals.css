@@ -5,42 +5,47 @@
 }
 
 :root {
-  --app-bg: #f6f7f3;
-  --app-bg-accent: #e9efe8;
-  --surface: rgba(255, 255, 255, 0.9);
+  --app-bg: #f4f7ff;
+  --app-bg-accent: #eaf0ff;
+  --surface: rgba(255, 255, 255, 0.92);
   --surface-strong: #ffffff;
-  --surface-soft: #f4f6f0;
-  --border: rgba(24, 36, 33, 0.11);
-  --text-main: #182421;
-  --text-soft: #5f6d66;
-  --text-faint: #8d9a93;
-  --sidebar: #14201d;
-  --sidebar-elevated: #1d2b27;
-  --accent: #0f766e;
-  --accent-strong: #115e59;
-  --success: #15803d;
-  --danger: #b91c1c;
-  --warning: #b7791f;
-  --shadow-soft: 0 18px 42px rgba(24, 36, 33, 0.08);
+  --surface-soft: #f6f8ff;
+  --border: rgba(49, 70, 114, 0.12);
+  --text-main: #111827;
+  --text-soft: #667085;
+  --text-faint: #98a2b3;
+  --sidebar: #073df5;
+  --sidebar-elevated: #2458ff;
+  --accent: #3268ff;
+  --accent-strong: #1f55ff;
+  --accent-alt: #7c3cff;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --shadow-soft: 0 18px 48px rgba(31, 85, 255, 0.1);
+  --shadow-card: 0 10px 28px rgba(15, 23, 42, 0.08);
 }
 
 :root[data-theme="dark"] {
-  --app-bg: #09111f;
-  --app-bg-accent: #111c31;
-  --surface: rgba(15, 23, 42, 0.9);
-  --surface-strong: #111827;
-  --surface-soft: #172033;
-  --border: rgba(148, 163, 184, 0.14);
-  --text-main: #e5edf7;
-  --text-soft: #9aa7bb;
-  --text-faint: #6f7c92;
+  --app-bg: #071120;
+  --app-bg-accent: #0d1b2d;
+  --surface: rgba(15, 25, 42, 0.92);
+  --surface-strong: #111d31;
+  --surface-soft: #0c1626;
+  --border: rgba(148, 163, 184, 0.16);
+  --text-main: #f5f8ff;
+  --text-soft: #a8b3c7;
+  --text-faint: #6f7d95;
   --sidebar: #050b16;
-  --sidebar-elevated: #0d1525;
-  --accent: #60a5fa;
-  --accent-strong: #3b82f6;
-  --success: #34d399;
-  --danger: #f87171;
-  --shadow-soft: 0 16px 40px rgba(2, 6, 23, 0.34);
+  --sidebar-elevated: #111d31;
+  --accent: #4f7dff;
+  --accent-strong: #3268ff;
+  --accent-alt: #8b5cf6;
+  --success: #22c55e;
+  --danger: #fb7185;
+  --warning: #fbbf24;
+  --shadow-soft: 0 18px 48px rgba(2, 6, 23, 0.36);
+  --shadow-card: 0 14px 34px rgba(2, 6, 23, 0.32);
 }
 
 html {
@@ -50,8 +55,8 @@ html {
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 12% 8%, rgba(15, 118, 110, 0.14), transparent 28%),
-    radial-gradient(circle at 88% 18%, rgba(183, 121, 31, 0.12), transparent 26%),
+    linear-gradient(135deg, rgba(31, 85, 255, 0.08), transparent 28%),
+    linear-gradient(315deg, rgba(124, 60, 255, 0.08), transparent 30%),
     linear-gradient(180deg, var(--app-bg) 0%, var(--app-bg-accent) 100%);
   color: var(--text-main);
 }
@@ -63,4 +68,52 @@ body {
 
 ::selection {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.crm-shell-dark {
+  --app-bg: #07111f;
+  --app-bg-accent: #0d1a2c;
+  --surface: rgba(13, 25, 43, 0.94);
+  --surface-strong: #101d31;
+  --surface-soft: #0a1525;
+  --border: rgba(148, 163, 184, 0.16);
+  --text-main: #f7faff;
+  --text-soft: #aab6ca;
+  --text-faint: #71809a;
+  --sidebar: #050b16;
+  --sidebar-elevated: #111d31;
+  --accent: #4f7dff;
+  --accent-strong: #3268ff;
+  --shadow-soft: 0 18px 52px rgba(0, 0, 0, 0.32);
+}
+
+.crm-input {
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  color: var(--text-main);
+  outline: none;
+}
+
+.crm-input::placeholder {
+  color: var(--text-faint);
+}
+
+.crm-avatar {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 95%, white), var(--accent-alt)),
+    var(--accent);
+  color: white;
+}
+
+.crm-gradient-button {
+  background: linear-gradient(135deg, var(--accent-strong), var(--accent-alt));
+  color: white;
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 24%, transparent);
 }
