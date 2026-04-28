@@ -21,7 +21,6 @@ import type {
   UserAnalyticsSummary,
 } from "@/types/crm";
 
-type DashboardTab = "overview" | "analytics" | "departments" | "workspace" | "activity";
 type WorkspaceActionLoading = "" | "meet" | "sheets" | "drive";
 
 function Surface({
@@ -1150,7 +1149,6 @@ export default function DashboardPage() {
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState("");
   const [error, setError] = useState("");
-  const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
 
   const leadershipView = summary?.scope === "admin" || summary?.scope === "superadmin";
 
@@ -1160,9 +1158,11 @@ export default function DashboardPage() {
     }
 
     const params = new URLSearchParams(window.location.search);
-    const nextTab = params.get("tab");
-    if (nextTab === "overview" || nextTab === "analytics" || nextTab === "departments" || nextTab === "workspace" || nextTab === "activity") {
-      setActiveTab(nextTab);
+    const targetSection = params.get("tab");
+    if (targetSection === "workspace") {
+      window.setTimeout(() => {
+        document.getElementById("workspace-section")?.scrollIntoView({ block: "start" });
+      }, 250);
     }
 
     const googleState = params.get("google");
@@ -1452,14 +1452,6 @@ export default function DashboardPage() {
     );
   }
 
-  const tabs: Array<{ id: DashboardTab; label: string }> = [
-    { id: "overview", label: "Overview" },
-    { id: "analytics", label: "Analytics" },
-    ...(summary.scope === "superadmin" ? [{ id: "departments" as DashboardTab, label: "Departments" }] : []),
-    ...(canUseGoogleWorkspace(summary.scope) ? [{ id: "workspace" as DashboardTab, label: "Workspace" }] : []),
-    { id: "activity", label: "Activity" },
-  ];
-
   const completionRate =
     summary.scope === "employee"
       ? Math.round(
@@ -1563,30 +1555,21 @@ export default function DashboardPage() {
                   : "See your attendance, working hours, task movement, and daily progress in a more visual workspace."}
               </p>
 
-              <div
-                className="mt-6 inline-flex items-center gap-1 rounded-2xl border p-1"
-                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
-              >
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveTab(tab.id)}
-                    className="rounded-xl px-4 py-2 text-sm font-medium transition"
-                    style={
-                      activeTab === tab.id
-                        ? {
-                            background: "var(--accent)",
-                            color: "#ffffff",
-                          }
-                        : {
-                            color: "var(--text-soft)",
-                          }
-                    }
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              <div className="mt-6 grid max-w-2xl gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Focus</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">
+                    {leadershipView ? "Operations" : "My work"}
+                  </p>
+                </div>
+                <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Flow</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">Scroll workspace</p>
+                </div>
+                <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Mode</p>
+                  <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">{formatRole(user.role)}</p>
+                </div>
               </div>
             </div>
 
@@ -1630,7 +1613,11 @@ export default function DashboardPage() {
           </div>
         </Surface>
 
-        {activeTab === "overview" ? (
+        <section className="space-y-5" id="overview-section">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Workspace snapshot</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Overview</h2>
+          </div>
           <div className="space-y-5">
             <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
               {overviewStats.map((stat) => (
@@ -1685,9 +1672,13 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        ) : null}
+        </section>
 
-        {activeTab === "analytics" ? (
+        <section className="space-y-5" id="analytics-section">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Decision support</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Analytics</h2>
+          </div>
           <div className="space-y-5">
             {summary.scope !== "employee" ? (
               <>
@@ -1783,9 +1774,14 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        ) : null}
+        </section>
 
-        {activeTab === "departments" ? (
+        <section className="space-y-5" id="departments-section">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Organization map</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Departments</h2>
+          </div>
+          {(
           summary.scope === "superadmin" && summary.analytics.superAdmin ? (
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
@@ -1816,9 +1812,15 @@ export default function DashboardPage() {
               description="This section is visible only for Superadmin."
             />
           )
-        ) : null}
+          )}
+        </section>
 
-        {activeTab === "workspace" ? (
+        <section className="space-y-5" id="workspace-section">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Connected work</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Google Workspace</h2>
+          </div>
+          {(
           canUseGoogleWorkspace(summary.scope) ? (
             <GoogleWorkspacePanel
               status={workspaceStatus}
@@ -1843,9 +1845,15 @@ export default function DashboardPage() {
           ) : (
             <StatePanel title="Workspace tab unavailable" description="Only admins can connect Google Workspace." />
           )
-        ) : null}
+          )}
+        </section>
 
-        {activeTab === "activity" ? (
+        <section className="space-y-5" id="activity-section">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Team rhythm</p>
+            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Activity</h2>
+          </div>
+          {(
           <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
             {summary.scope !== "employee" ? (
               <Surface className="p-5">
@@ -1879,7 +1887,8 @@ export default function DashboardPage() {
 
             <UpdateFeed title="Leadership update feed" items={summary.analytics.updatesFeed} />
           </div>
-        ) : null}
+          )}
+        </section>
       </div>
     </CRMShell>
   );

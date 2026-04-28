@@ -6,7 +6,7 @@ type StatePanelProps = {
 export function StatePanel({ title, description }: StatePanelProps) {
   return (
     <div
-      className="flex min-h-[32vh] items-center justify-center rounded-[20px] border p-6 text-center"
+      className="flex min-h-[32vh] items-center justify-center rounded-xl border p-6 text-center"
       style={{
         background: "var(--surface)",
         borderColor: "var(--border)",
