@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearToken } from "@/lib/auth";
@@ -51,7 +51,19 @@ export function CRMShell({ children, user }: CRMShellProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const { items, unreadCount, markAllRead, markRead, clearAll } = useNotifications(user);
+  const { items, unreadCount, lastPushedId, markAllRead, markRead, clearAll } = useNotifications(user);
+  const [toastVisible, setToastVisible] = useState(false);
+
+  const latestItem = useMemo(() => items[0] ?? null, [items]);
+
+  useEffect(() => {
+    if (!lastPushedId) {
+      return;
+    }
+    setToastVisible(true);
+    const timer = setTimeout(() => setToastVisible(false), 3200);
+    return () => clearTimeout(timer);
+  }, [lastPushedId]);
 
   const navItems: NavItem[] = [
     { href: "/dashboard", label: "Dashboard", icon: "D" },
@@ -216,7 +228,7 @@ export function CRMShell({ children, user }: CRMShellProps) {
                 <div className="relative">
                   <button
                     type="button"
-                    className="relative flex h-10 w-10 items-center justify-center rounded-md border text-sm font-bold"
+                    className="relative flex h-10 items-center justify-center gap-2 rounded-md border px-3 text-xs font-bold"
                     style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-soft)" }}
                     aria-label="Notifications"
                     onClick={() => {
@@ -224,7 +236,8 @@ export function CRMShell({ children, user }: CRMShellProps) {
                       markAllRead();
                     }}
                   >
-                    !
+                    <span aria-hidden="true">🔔</span>
+                    <span>Alerts</span>
                     {unreadCount > 0 ? (
                       <span
                         className="absolute -right-1 -top-1 min-w-5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
@@ -303,6 +316,21 @@ export function CRMShell({ children, user }: CRMShellProps) {
               </div>
             </div>
           </header>
+          {toastVisible && latestItem ? (
+            <button
+              type="button"
+              className="mb-3 w-full rounded-lg border px-4 py-3 text-left"
+              style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              onClick={() => {
+                markRead(latestItem.id);
+                setToastVisible(false);
+                router.push(latestItem.href);
+              }}
+            >
+              <p className="text-sm font-semibold text-[var(--text-main)]">{latestItem.title}</p>
+              <p className="mt-1 text-xs text-[var(--text-soft)]">{latestItem.message}</p>
+            </button>
+          ) : null}
           {children}
         </main>
       </div>

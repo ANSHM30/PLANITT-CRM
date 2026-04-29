@@ -29,6 +29,7 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
   const [editForms, setEditForms] = useState<
     Record<string, { title: string; description: string; userIds: string[]; checklistText: string }>
   >({});
+  const [issuePanelTaskId, setIssuePanelTaskId] = useState<string | null>(null);
 
   const canManageTask = (task: Task) =>
     user.role === "SUPERADMIN" ||
@@ -184,25 +185,104 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
   };
 
   return (
-    <div className="grid gap-3 xl:grid-cols-3">
+    <div className="space-y-3">
       {tasks.map((task) => (
         <article
           key={task.id}
           className="rounded-lg border p-4"
           style={{
-            background:
-              "linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface-soft) 86%, transparent) 100%)",
+            background: "var(--surface)",
             borderColor: "var(--border)",
             boxShadow: "var(--shadow-card)",
           }}
         >
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-                Task
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_0.8fr_0.9fr_auto] xl:items-center">
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-semibold text-[var(--text-main)]">{task.title}</h3>
+              <p className="mt-1 truncate text-sm text-[var(--text-soft)]">
+                {task.description || "No description"}
               </p>
-              <h3 className="mt-2 text-base font-bold text-[var(--text-main)]">{task.title}</h3>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {task.assignments.slice(0, 3).map((assignment) => (
+                  <span
+                    key={assignment.id}
+                    className="rounded-md border px-2 py-1 text-[11px] font-medium"
+                    style={{
+                      borderColor: "var(--border)",
+                      background: "var(--surface-soft)",
+                      color: "var(--text-soft)",
+                    }}
+                  >
+                    {assignment.user.name}
+                  </span>
+                ))}
+                {task.assignments.length > 3 ? (
+                  <span className="text-xs text-[var(--text-faint)]">+{task.assignments.length - 3} more</span>
+                ) : null}
+              </div>
             </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${statusStyles[task.status]}`}>
+                {task.status.replace("_", " ")}
+              </span>
+              {canManageTask(task) && !task.checklistItems.length ? (
+                <select
+                  value={task.status}
+                  disabled={savingId === task.id}
+                  onChange={(event) =>
+                    void handleTaskUpdate(task.id, {
+                      status: event.target.value as Task["status"],
+                    })
+                  }
+                  className="rounded-md border px-2 py-1 text-xs outline-none"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: "var(--surface-soft)",
+                    color: "var(--text-main)",
+                  }}
+                >
+                  {statuses.map((status) => (
+                    <option key={status} value={status}>
+                      {status.replace("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+
+            <div className="min-w-0">
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-semibold text-[var(--text-soft)]">Progress</p>
+                <span className="text-xs font-semibold text-[var(--text-main)]">{task.progress}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--surface-soft)" }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    background: "linear-gradient(90deg, var(--accent-strong), var(--success))",
+                    width: `${task.progress}%`,
+                  }}
+                />
+              </div>
+              {canManageTask(task) && !task.checklistItems.length ? (
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={task.progress}
+                  disabled={savingId === task.id}
+                  onChange={(event) =>
+                    void handleTaskUpdate(task.id, {
+                      progress: Number(event.target.value),
+                    })
+                  }
+                  className="mt-2 w-full accent-slate-950"
+                />
+              ) : null}
+            </div>
+
             <div className="flex items-center gap-2">
               {canEditTask ? (
                 <>
@@ -225,9 +305,14 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
                   </button>
                 </>
               ) : null}
-              <span className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${statusStyles[task.status]}`}>
-                {task.status.replace("_", " ")}
-              </span>
+              <button
+                type="button"
+                onClick={() => setIssuePanelTaskId((current) => (current === task.id ? null : task.id))}
+                className="rounded-md border px-2.5 py-1 text-xs font-semibold"
+                style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
+              >
+                Issues ({task.issues.length})
+              </button>
             </div>
           </div>
 
@@ -320,35 +405,10 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
             </div>
           ) : null}
 
-          <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
-            {task.description || "No description provided."}
-          </p>
-
-          <div className="mt-5">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-                Progress
-              </p>
-              <span className="text-sm font-semibold text-[var(--text-main)]">{task.progress}%</span>
-            </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full" style={{ background: "var(--surface-soft)" }}>
-              <div
-                className="h-full rounded-full"
-                style={{
-                  background:
-                    "linear-gradient(90deg, var(--accent-strong), var(--accent-alt), var(--success))",
-                  width: `${task.progress}%`,
-                }}
-              />
-            </div>
-          </div>
-
           {task.checklistItems.length ? (
-            <div className="mt-5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-                Checklist
-              </p>
-              <div className="mt-3 space-y-2">
+            <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+              <p className="text-xs font-semibold text-[var(--text-soft)]">Checklist</p>
+              <div className="mt-2 space-y-2">
                 {task.checklistItems.map((item) => (
                   <label
                     key={item.id}
@@ -372,84 +432,9 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
             </div>
           ) : null}
 
-          <div className="mt-5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-                Assigned to
-              </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {task.assignments.map((assignment) => (
-                <span
-                  key={assignment.id}
-                  className="rounded-md border px-2.5 py-1 text-xs font-medium"
-                  style={{
-                    borderColor: "var(--border)",
-                    background: "var(--surface-soft)",
-                    color: "var(--text-soft)",
-                  }}
-                >
-                  {assignment.user.name} - {assignment.user.role}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {canManageTask(task) && !task.checklistItems.length ? (
-            <div className="mt-6 grid gap-4 md:grid-cols-[auto_1fr] md:items-center">
-              <label className="text-sm font-medium text-[var(--text-soft)]">Update status</label>
-              <select
-                defaultValue={task.status}
-                disabled={savingId === task.id}
-                onChange={(event) =>
-                  void handleTaskUpdate(task.id, {
-                    status: event.target.value as Task["status"],
-                  })
-                }
-                className="rounded-md border px-3 py-2 text-sm outline-none ring-0"
-                style={{
-                  borderColor: "var(--border)",
-                  background: "var(--surface-soft)",
-                  color: "var(--text-main)",
-                }}
-              >
-                {statuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
-
-              <label className="text-sm font-medium text-[var(--text-soft)]">Update progress</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={task.progress}
-                  disabled={savingId === task.id}
-                  onChange={(event) =>
-                    void handleTaskUpdate(task.id, {
-                      progress: Number(event.target.value),
-                    })
-                  }
-                  className="w-full accent-slate-950"
-                />
-                <span className="w-12 text-right text-sm font-semibold text-[var(--text-main)]">
-                  {task.progress}%
-                </span>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="mt-6 border-t pt-5" style={{ borderColor: "var(--border)" }}>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-faint)]">
-                Blockers / issues
-              </p>
-              <span className="text-xs font-semibold text-[var(--text-soft)]">{task.issues.length} reports</span>
-            </div>
-
-            <div className="mt-4 space-y-3">
+          {issuePanelTaskId === task.id ? (
+            <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
+            <div className="space-y-3">
               {task.issues.map((issue) => (
                 <div
                   key={issue.id}
@@ -557,7 +542,8 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
                 </button>
               </div>
             ) : null}
-          </div>
+            </div>
+          ) : null}
         </article>
       ))}
     </div>

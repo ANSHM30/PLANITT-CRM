@@ -128,6 +128,26 @@ export async function createTask(req, res) {
       include: getTaskInclude(),
     });
 
+    let projectAssignedUserIds = [];
+    if (task.projectId) {
+      const projectAssignments = await prisma.taskAssignment.findMany({
+        where: {
+          task: {
+            projectId: task.projectId,
+          },
+          user: {
+            role: {
+              in: ["EMPLOYEE", "INTERN"],
+            },
+          },
+        },
+        select: {
+          userId: true,
+        },
+      });
+      projectAssignedUserIds = Array.from(new Set(projectAssignments.map((item) => item.userId)));
+    }
+
     emitCRMEvent("task:updated", {
       type: "task_created",
       taskId: task.id,
@@ -136,6 +156,7 @@ export async function createTask(req, res) {
       actorId: req.user.userId,
       actorRole: req.user.role,
       assignedUserIds: task.assignments.map((assignment) => assignment.userId),
+      projectAssignedUserIds,
     });
     if (task.projectId) {
       emitCRMEvent("project:updated", {

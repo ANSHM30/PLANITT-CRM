@@ -27,6 +27,7 @@ function createNotificationId() {
 export function useNotifications(user: CRMUser) {
   const { socket } = useSocket();
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [lastPushedId, setLastPushedId] = useState<string>("");
 
   useEffect(() => {
     const raw = window.localStorage.getItem(storageKey(user.id));
@@ -57,15 +58,17 @@ export function useNotifications(user: CRMUser) {
     });
 
     const push = (notification: Omit<NotificationItem, "id" | "createdAt" | "read">) => {
+      const nextId = createNotificationId();
       setItems((current) => [
         {
-          id: createNotificationId(),
+          id: nextId,
           createdAt: new Date().toISOString(),
           read: false,
           ...notification,
         },
         ...current,
       ]);
+      setLastPushedId(nextId);
     };
 
     const handleTaskUpdated = (payload: any = {}) => {
@@ -75,6 +78,9 @@ export function useNotifications(user: CRMUser) {
 
       const taskHref = `/tasks?taskId=${payload.taskId ?? ""}`;
       const assignedUserIds: string[] = Array.isArray(payload.assignedUserIds) ? payload.assignedUserIds : [];
+      const projectAssignedUserIds: string[] = Array.isArray(payload.projectAssignedUserIds)
+        ? payload.projectAssignedUserIds
+        : [];
       const newlyAssignedUserIds: string[] = Array.isArray(payload.newlyAssignedUserIds)
         ? payload.newlyAssignedUserIds
         : [];
@@ -83,6 +89,21 @@ export function useNotifications(user: CRMUser) {
         push({
           title: "New Task Assigned",
           message: payload.taskTitle ? `${payload.taskTitle} is assigned to you.` : "A new task is assigned to you.",
+          href: taskHref,
+        });
+        return;
+      }
+
+      if (
+        payload.type === "task_created" &&
+        ["ADMIN", "MANAGER", "SUPERADMIN"].includes(payload.actorRole) &&
+        projectAssignedUserIds.includes(user.id)
+      ) {
+        push({
+          title: "Project Task Added",
+          message: payload.taskTitle
+            ? `New task added in your project: ${payload.taskTitle}.`
+            : "A new task was added in your project.",
           href: taskHref,
         });
         return;
@@ -104,6 +125,34 @@ export function useNotifications(user: CRMUser) {
           push({
             title: "Task Updated",
             message: payload.taskTitle ? `${payload.taskTitle} was updated.` : "One of your tasks was updated.",
+            href: taskHref,
+          });
+        }
+        return;
+      }
+
+      if (payload.type === "task_progress_updated") {
+        if (assignedUserIds.includes(user.id) && payload.actorRole && payload.actorRole !== user.role) {
+          push({
+            title: "Task Progress Updated",
+            message: payload.taskTitle
+              ? `${payload.taskTitle} progress/status changed.`
+              : "A task progress update was posted.",
+            href: taskHref,
+          });
+          return;
+        }
+
+        if (
+          ["SUPERADMIN", "ADMIN", "MANAGER"].includes(user.role) &&
+          payload.actorRole &&
+          (payload.actorRole === "EMPLOYEE" || payload.actorRole === "INTERN")
+        ) {
+          push({
+            title: "Team Task Update",
+            message: payload.taskTitle
+              ? `Progress updated on ${payload.taskTitle}.`
+              : "An employee/intern updated task progress.",
             href: taskHref,
           });
         }
@@ -175,9 +224,9 @@ export function useNotifications(user: CRMUser) {
   return {
     items,
     unreadCount,
+    lastPushedId,
     markAllRead,
     markRead,
     clearAll,
   };
 }
-
