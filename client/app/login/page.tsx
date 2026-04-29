@@ -173,12 +173,6 @@ export default function LoginPage() {
           >
             {googleLoading ? "Redirecting to Google..." : "Login with Google"}
           </button>
-
-          <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-            <p className="font-semibold text-slate-700">Quick demo accounts</p>
-            <p className="mt-2">Admin: admin@planittcrm.com</p>
-            <p>Password: Planitt@123</p>
-          </div>
         </section>
       </div>
     </div>
