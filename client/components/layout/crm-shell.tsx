@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearToken } from "@/lib/auth";
 import { useTheme } from "@/components/providers/theme-provider";
+import { useNotifications } from "@/hooks/use-notifications";
 import type { CRMUser } from "@/types/crm";
 
 type CRMShellProps = {
@@ -49,6 +50,8 @@ export function CRMShell({ children, user }: CRMShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const { items, unreadCount, markAllRead, markRead, clearAll } = useNotifications(user);
 
   const navItems: NavItem[] = [
     { href: "/dashboard", label: "Dashboard", icon: "D" },
@@ -210,14 +213,90 @@ export function CRMShell({ children, user }: CRMShellProps) {
                 />
               </label>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="flex h-10 w-10 items-center justify-center rounded-md border text-sm font-bold"
-                  style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-soft)" }}
-                  aria-label="Notifications"
-                >
-                  !
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="relative flex h-10 w-10 items-center justify-center rounded-md border text-sm font-bold"
+                    style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-soft)" }}
+                    aria-label="Notifications"
+                    onClick={() => {
+                      setNotificationsOpen((value) => !value);
+                      markAllRead();
+                    }}
+                  >
+                    !
+                    {unreadCount > 0 ? (
+                      <span
+                        className="absolute -right-1 -top-1 min-w-5 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                        style={{ background: "var(--danger)" }}
+                      >
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    ) : null}
+                  </button>
+                  {notificationsOpen ? (
+                    <div
+                      className="absolute right-0 z-50 mt-2 w-[360px] rounded-lg border p-3"
+                      style={{
+                        background: "var(--surface)",
+                        borderColor: "var(--border)",
+                        boxShadow: "var(--shadow-card)",
+                      }}
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-[var(--text-main)]">Notifications</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={markAllRead}
+                            className="text-xs font-semibold"
+                            style={{ color: "var(--accent-strong)" }}
+                          >
+                            Mark read
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearAll}
+                            className="text-xs font-semibold"
+                            style={{ color: "var(--danger)" }}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                        {items.length === 0 ? (
+                          <p className="rounded-md border px-3 py-4 text-xs" style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}>
+                            No notifications yet.
+                          </p>
+                        ) : (
+                          items.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className="w-full rounded-md border p-3 text-left"
+                              style={{
+                                borderColor: "var(--border)",
+                                background: item.read ? "var(--surface)" : "var(--surface-soft)",
+                              }}
+                              onClick={() => {
+                                markRead(item.id);
+                                setNotificationsOpen(false);
+                                router.push(item.href);
+                              }}
+                            >
+                              <p className="text-sm font-semibold text-[var(--text-main)]">{item.title}</p>
+                              <p className="mt-1 text-xs text-[var(--text-soft)]">{item.message}</p>
+                              <p className="mt-2 text-[10px] uppercase tracking-[0.14em] text-[var(--text-faint)]">
+                                {new Date(item.createdAt).toLocaleString()}
+                              </p>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <div className="crm-avatar flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold">
                   {initials(user.name)}
                 </div>

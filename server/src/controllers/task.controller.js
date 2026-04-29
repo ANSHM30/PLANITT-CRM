@@ -80,6 +80,8 @@ function isLeadership(role) {
   return role === "SUPERADMIN" || role === "ADMIN" || role === "MANAGER";
 }
 
+const LEADERSHIP_ROLES = ["SUPERADMIN", "ADMIN", "MANAGER"];
+
 export async function createTask(req, res) {
   try {
     const { title, description, userIds = [], progress = 0, checklistItems = [], projectId } = req.body;
@@ -130,6 +132,10 @@ export async function createTask(req, res) {
       type: "task_created",
       taskId: task.id,
       projectId: task.projectId ?? null,
+      taskTitle: task.title,
+      actorId: req.user.userId,
+      actorRole: req.user.role,
+      assignedUserIds: task.assignments.map((assignment) => assignment.userId),
     });
     if (task.projectId) {
       emitCRMEvent("project:updated", {
@@ -197,6 +203,7 @@ export async function updateTaskStatus(req, res) {
         checklistItems: true,
       },
     });
+    const previousAssigneeIds = existingTask.assignments.map((assignment) => assignment.userId);
 
     if (!existingTask) {
       return res.status(404).json({ error: "Task not found" });
@@ -310,6 +317,13 @@ export async function updateTaskStatus(req, res) {
       type: wantsStructureEdit ? "task_modified" : "task_progress_updated",
       taskId: task.id,
       projectId: task.projectId ?? null,
+      taskTitle: task.title,
+      actorId: req.user.userId,
+      actorRole: req.user.role,
+      assignedUserIds: task.assignments.map((assignment) => assignment.userId),
+      newlyAssignedUserIds: task.assignments
+        .map((assignment) => assignment.userId)
+        .filter((userId) => !previousAssigneeIds.includes(userId)),
       progress: task.progress,
       status: task.status,
     });
@@ -484,11 +498,27 @@ export async function createTaskIssue(req, res) {
       taskId: req.params.id,
       projectId: task.projectId ?? null,
       issueId: issue.id,
+      taskTitle: task.title,
+      issueTitle: issue.title,
+      actorId: req.user.userId,
+      actorRole: req.user.role,
+      reporterId: req.user.userId,
+      reporterName: issue.reporter.name,
+      assignedUserIds: task.assignments.map((assignment) => assignment.userId),
+      notifyRoles: LEADERSHIP_ROLES,
     });
     emitCRMEvent("issue:updated", {
       type: "issue_reported",
       taskId: req.params.id,
       issueId: issue.id,
+      taskTitle: task.title,
+      issueTitle: issue.title,
+      actorId: req.user.userId,
+      actorRole: req.user.role,
+      reporterId: req.user.userId,
+      reporterName: issue.reporter.name,
+      assignedUserIds: task.assignments.map((assignment) => assignment.userId),
+      notifyRoles: LEADERSHIP_ROLES,
     });
 
     return res.status(201).json(issue);
@@ -507,10 +537,19 @@ export async function respondToTaskIssue(req, res) {
 
     const issue = await prisma.taskIssue.findUnique({
       where: { id: req.params.issueId },
-      include: {
+      select: {
+        id: true,
+        taskId: true,
         task: {
-          include: {
-            assignments: true,
+          select: {
+            id: true,
+            title: true,
+            projectId: true,
+            assignments: {
+              select: {
+                userId: true,
+              },
+            },
           },
         },
       },
@@ -561,11 +600,23 @@ export async function respondToTaskIssue(req, res) {
       taskId: issue.taskId,
       projectId: issue.task.projectId ?? null,
       issueId: updatedIssue.id,
+      taskTitle: issue.task.title,
+      issueTitle: updatedIssue.title,
+      actorId: req.user.userId,
+      actorRole: req.user.role,
+      reporterId: updatedIssue.reporter.id,
+      assignedUserIds: issue.task.assignments.map((assignment) => assignment.userId),
     });
     emitCRMEvent("issue:updated", {
       type: "issue_responded",
       taskId: issue.taskId,
       issueId: updatedIssue.id,
+      taskTitle: issue.task.title,
+      issueTitle: updatedIssue.title,
+      actorId: req.user.userId,
+      actorRole: req.user.role,
+      reporterId: updatedIssue.reporter.id,
+      assignedUserIds: issue.task.assignments.map((assignment) => assignment.userId),
     });
 
     return res.json(updatedIssue);

@@ -50,6 +50,7 @@ export type CRMUser = {
     id: string;
     name: string;
     email: string;
+    role: UserRole;
   } | null;
   createdAt?: string;
 };

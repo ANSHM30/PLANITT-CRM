@@ -169,6 +169,13 @@ export default function EmployeesPage() {
     ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role)
   );
 
+  const hasAssignedLeadershipLinks = (member: CRMUser) => {
+    if (!["EMPLOYEE", "INTERN"].includes(member.role)) {
+      return false;
+    }
+    return member.manager?.role === "ADMIN" || member.manager?.role === "MANAGER";
+  };
+
   if (sessionLoading || !user) {
     return <StatePanel title="Loading team workspace" description="Fetching access and employee data." />;
   }
@@ -331,6 +338,8 @@ export default function EmployeesPage() {
                     <th className="px-5 py-4 font-semibold">Role</th>
                     <th className="px-5 py-4 font-semibold">Department</th>
                     <th className="px-5 py-4 font-semibold">Manager</th>
+                    <th className="px-5 py-4 font-semibold">Meet</th>
+                    <th className="px-5 py-4 font-semibold">Drive</th>
                   </tr>
                 </thead>
                 <tbody style={{ background: "var(--surface-strong)" }}>
@@ -448,6 +457,36 @@ export default function EmployeesPage() {
                                 </option>
                               ))}
                           </select>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        {hasAssignedLeadershipLinks(member) ? (
+                          <a
+                            href="https://meet.google.com/"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-semibold underline underline-offset-2"
+                            style={{ color: "var(--accent-strong)" }}
+                          >
+                            Open Meet
+                          </a>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        {hasAssignedLeadershipLinks(member) ? (
+                          <a
+                            href="https://drive.google.com/"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs font-semibold underline underline-offset-2"
+                            style={{ color: "var(--accent-strong)" }}
+                          >
+                            Open Drive
+                          </a>
+                        ) : (
+                          "-"
                         )}
                       </td>
                     </tr>

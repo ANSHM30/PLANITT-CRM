@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
-import { AttendanceCard } from "@/components/modules/attendance-card";
-import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
@@ -423,6 +421,246 @@ function StatusBreakdownCard({
   );
 }
 
+function DonutChartCard({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: Array<{ label: string; value: number; color: string }>;
+}) {
+  const total = Math.max(
+    items.reduce((sum, item) => sum + Math.max(0, item.value), 0),
+    1
+  );
+  const radius = 58;
+  const circumference = 2 * Math.PI * radius;
+  let offsetCursor = 0;
+
+  return (
+    <Surface className="p-5">
+      <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">{subtitle}</p>
+
+      <div className="mt-5 flex items-center gap-5">
+        <div className="relative h-40 w-40 shrink-0">
+          <svg viewBox="0 0 160 160" className="h-40 w-40 -rotate-90" aria-hidden="true">
+            <circle
+              cx="80"
+              cy="80"
+              r={radius}
+              fill="none"
+              stroke="var(--surface-soft)"
+              strokeWidth="20"
+            />
+            {items.map((item) => {
+              const safeValue = Math.max(0, item.value);
+              const length = (safeValue / total) * circumference;
+              const strokeDasharray = `${length} ${circumference - length}`;
+              const currentOffset = offsetCursor;
+              offsetCursor += length;
+
+              return (
+                <circle
+                  key={item.label}
+                  cx="80"
+                  cy="80"
+                  r={radius}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth="20"
+                  strokeLinecap="round"
+                  strokeDasharray={strokeDasharray}
+                  strokeDashoffset={-currentOffset}
+                />
+              );
+            })}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Total</p>
+            <p className="mt-1 text-2xl font-semibold text-[var(--text-main)]">{total}</p>
+          </div>
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-2.5">
+          {items.map((item) => {
+            const percent = Math.round((Math.max(0, item.value) / total) * 100);
+            return (
+              <div key={`${item.label}-legend`} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.color }} />
+                    <p className="text-sm text-[var(--text-main)]">{item.label}</p>
+                  </div>
+                  <p className="text-sm font-semibold text-[var(--text-main)]">
+                    {item.value} <span className="text-[var(--text-faint)]">({percent}%)</span>
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function MilestoneCard({
+  title,
+  value,
+  helper,
+}: {
+  title: string;
+  value: string;
+  helper: string;
+}) {
+  return (
+    <Surface className="p-5">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--text-faint)]">{title}</p>
+      <p className="mt-3 text-3xl font-semibold tracking-tight text-[var(--text-main)]">{value}</p>
+      <p className="mt-2 text-sm text-[var(--text-soft)]">{helper}</p>
+    </Surface>
+  );
+}
+
+function TeamProductivityScoreCard({
+  score,
+  completionRate,
+  attendanceRate,
+  momentum,
+}: {
+  score: number;
+  completionRate: number;
+  attendanceRate: number;
+  momentum: number;
+}) {
+  return (
+    <Surface className="p-5">
+      <p className="text-sm font-semibold text-[var(--text-main)]">Team productivity score</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">Weighted by completion, attendance, and momentum.</p>
+      <div className="mt-4 flex items-end justify-between gap-3">
+        <p className="text-4xl font-semibold text-[var(--text-main)]">{score}</p>
+        <p className="text-sm text-[var(--text-soft)]">/ 100</p>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--text-faint)]">Completion</p>
+          <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">{completionRate}%</p>
+        </div>
+        <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--text-faint)]">Attendance</p>
+          <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">{attendanceRate}%</p>
+        </div>
+        <div className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--text-faint)]">Momentum</p>
+          <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">
+            {momentum >= 0 ? "+" : ""}
+            {momentum}%
+          </p>
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function WeeklyForecastCard({
+  forecastPercent,
+  forecastCompleted,
+  baseCompleted,
+}: {
+  forecastPercent: number;
+  forecastCompleted: number;
+  baseCompleted: number;
+}) {
+  return (
+    <Surface className="p-5">
+      <p className="text-sm font-semibold text-[var(--text-main)]">Weekly forecast</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">Predicted completion for next week using moving average.</p>
+      <div className="mt-4 flex items-end justify-between gap-3">
+        <p className="text-3xl font-semibold text-[var(--text-main)]">{forecastPercent}%</p>
+        <p className="text-xs text-[var(--text-faint)]">Projected rate</p>
+      </div>
+      <p className="mt-3 text-sm text-[var(--text-soft)]">
+        Forecast completed tasks: {forecastCompleted} (current: {baseCompleted})
+      </p>
+    </Surface>
+  );
+}
+
+function RiskAlertsCard({
+  alerts,
+}: {
+  alerts: Array<{ id: string; label: string; detail: string; severity: "high" | "medium" }>;
+}) {
+  return (
+    <Surface className="p-5">
+      <p className="text-sm font-semibold text-[var(--text-main)]">Risk alerts</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">Priority signals that need follow-up.</p>
+      <div className="mt-4 space-y-2.5">
+        {alerts.length ? (
+          alerts.map((alert) => (
+            <div key={alert.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold text-[var(--text-main)]">{alert.label}</p>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
+                  style={{
+                    background:
+                      alert.severity === "high"
+                        ? "color-mix(in srgb, #ef4444 20%, var(--surface))"
+                        : "color-mix(in srgb, #f59e0b 20%, var(--surface))",
+                    color: alert.severity === "high" ? "#b91c1c" : "#b45309",
+                  }}
+                >
+                  {alert.severity}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-[var(--text-soft)]">{alert.detail}</p>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-[var(--text-soft)]">No active risks. Everything looks stable right now.</p>
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+function PerformerListCard({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: Array<{ id: string; name: string; role: string; score: number }>;
+}) {
+  return (
+    <Surface className="p-5">
+      <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+      <p className="mt-1 text-sm text-[var(--text-soft)]">{subtitle}</p>
+      <div className="mt-4 space-y-2.5">
+        {items.length ? (
+          items.map((item) => (
+            <div key={item.id} className="rounded-xl border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--text-main)]">{item.name}</p>
+                  <p className="text-xs text-[var(--text-soft)]">{item.role}</p>
+                </div>
+                <p className="text-sm font-semibold text-[var(--text-main)]">{item.score}</p>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-[var(--text-soft)]">Not enough data yet.</p>
+        )}
+      </div>
+    </Surface>
+  );
+}
+
 function TeamMemberCard({
   member,
   active,
@@ -733,6 +971,7 @@ function GoogleWorkspacePanel({
   onCreateMeet,
   onCreateSheet,
   onCreateDriveFolder,
+  onSetMessage,
 }: {
   status: GoogleWorkspaceStatus | null;
   loading: boolean;
@@ -752,6 +991,7 @@ function GoogleWorkspacePanel({
   onCreateMeet: () => void;
   onCreateSheet: () => void;
   onCreateDriveFolder: () => void;
+  onSetMessage: (value: string) => void;
 }) {
   if (loading) {
     return (
@@ -763,6 +1003,7 @@ function GoogleWorkspacePanel({
   }
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
+  const [sharingAsset, setSharingAsset] = useState<"" | "meet" | "drive">("");
   const workspaceReady = Boolean(status?.connected);
   const workspaceBadgeLabel = status?.connected
     ? "Connected"
@@ -778,6 +1019,46 @@ function GoogleWorkspacePanel({
       : status && status.oauthConfigured === false
         ? { background: "color-mix(in srgb, #ef4444 16%, var(--surface))", color: "#b91c1c" }
         : { background: "var(--surface-soft)", color: "var(--text-soft)" };
+
+  const shareAssetToChat = async (service: "meet" | "drive") => {
+    const resultProjectId = service === "meet" ? meetResult?.project.id : driveResult?.project.id;
+    if (!resultProjectId) {
+      onSetMessage("Generate the asset first before sharing to chat.");
+      return;
+    }
+
+    const content =
+      service === "meet"
+        ? [
+            `Google Meet session created for ${meetResult?.project.name}.`,
+            meetResult?.meetUrl ? `Meet: ${meetResult.meetUrl}` : null,
+            meetResult?.eventUrl ? `Calendar event: ${meetResult.eventUrl}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : [
+            `Google Drive workspace created for ${driveResult?.project.name}.`,
+            driveResult?.folderUrl ? `Folder: ${driveResult.folderUrl}` : null,
+            driveResult?.summaryFileUrl ? `Summary file: ${driveResult.summaryFileUrl}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+    try {
+      setSharingAsset(service);
+      await apiPost("/chat/messages", {
+        channelType: "PROJECT",
+        channelId: resultProjectId,
+        content,
+        messageType: "TEXT",
+      });
+      onSetMessage(`Shared ${service === "meet" ? "Meet link" : "Drive links"} to project chat.`);
+    } catch (err) {
+      onSetMessage(normalizeErrorMessage(err, "Failed to share asset to chat."));
+    } finally {
+      setSharingAsset("");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -1045,6 +1326,15 @@ function GoogleWorkspacePanel({
                       Open Calendar event
                     </a>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void shareAssetToChat("meet")}
+                    disabled={sharingAsset === "meet"}
+                    className="rounded-xl border px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                  >
+                    {sharingAsset === "meet" ? "Sharing..." : "Share to chat"}
+                  </button>
                 </div>
               </article>
             ) : null}
@@ -1094,6 +1384,15 @@ function GoogleWorkspacePanel({
                       Open summary file
                     </a>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void shareAssetToChat("drive")}
+                    disabled={sharingAsset === "drive"}
+                    className="rounded-xl border px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                  >
+                    {sharingAsset === "drive" ? "Sharing..." : "Share to chat"}
+                  </button>
                 </div>
               </article>
             ) : null}
@@ -1135,6 +1434,7 @@ export default function DashboardPage() {
   const [teamMembers, setTeamMembers] = useState<CRMUser[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [selectedAnalytics, setSelectedAnalytics] = useState<UserAnalyticsSummary | null>(null);
+  const [teamAnalyticsList, setTeamAnalyticsList] = useState<UserAnalyticsSummary[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [workspaceStatus, setWorkspaceStatus] = useState<GoogleWorkspaceStatus | null>(null);
@@ -1148,6 +1448,7 @@ export default function DashboardPage() {
   const [driveResult, setDriveResult] = useState<GoogleDriveFolderResult | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceMessage, setWorkspaceMessage] = useState("");
+  const [activeDashboardTab, setActiveDashboardTab] = useState<"analytics" | "workspace">("analytics");
   const [error, setError] = useState("");
 
   const leadershipView = summary?.scope === "admin" || summary?.scope === "superadmin";
@@ -1160,9 +1461,7 @@ export default function DashboardPage() {
     const params = new URLSearchParams(window.location.search);
     const targetSection = params.get("tab");
     if (targetSection === "workspace") {
-      window.setTimeout(() => {
-        document.getElementById("workspace-section")?.scrollIntoView({ block: "start" });
-      }, 250);
+      setActiveDashboardTab("workspace");
     }
 
     const googleState = params.get("google");
@@ -1198,6 +1497,7 @@ export default function DashboardPage() {
   useEffect(() => {
     async function loadTeamMembers() {
       if (!leadershipView) {
+        setTeamAnalyticsList([]);
         return;
       }
 
@@ -1212,6 +1512,12 @@ export default function DashboardPage() {
             : members.filter((member) => member.role === "EMPLOYEE" || member.role === "INTERN");
         setTeamMembers(visibleMembers);
         setSelectedMemberId((current) => current || visibleMembers[0]?.id || "");
+        const analyticsList = await Promise.all(
+          visibleMembers.map(async (member) =>
+            apiGet<UserAnalyticsSummary>(`/users/${member.id}/analytics`)
+          )
+        );
+        setTeamAnalyticsList(analyticsList);
       } catch (err) {
         setError(normalizeErrorMessage(err, "Failed to load team members"));
       } finally {
@@ -1300,6 +1606,12 @@ export default function DashboardPage() {
               )
             : members.filter((member) => member.role === "EMPLOYEE" || member.role === "INTERN");
         setTeamMembers(visibleMembers);
+        const analyticsList = await Promise.all(
+          visibleMembers.map(async (member) =>
+            apiGet<UserAnalyticsSummary>(`/users/${member.id}/analytics`)
+          )
+        );
+        setTeamAnalyticsList(analyticsList);
 
         const nextSelectedId =
           visibleMembers.find((member) => member.id === selectedMemberId)?.id ??
@@ -1333,6 +1645,7 @@ export default function DashboardPage() {
           );
         }
       } else {
+        setTeamAnalyticsList([]);
         setWorkspaceStatus(null);
         setWorkspaceProjects([]);
         setWorkspaceUsers([]);
@@ -1462,6 +1775,125 @@ export default function DashboardPage() {
       : Math.round((summary.metrics.completedTasks / Math.max(1, summary.metrics.totalTasks)) * 100);
 
   const heroHoursValue = summary.analytics.workingHoursTrend.at(-1)?.hours ?? 0;
+  const totalWorkforce =
+    summary.scope === "employee" ? 1 : summary.metrics.totalEmployees + summary.metrics.totalInterns;
+  const activeAttendance =
+    summary.scope === "employee" ? ((summary as EmployeeDashboardSummary).metrics.checkedIn ? 1 : 0) : summary.metrics.activeAttendance;
+  const inactiveAttendance = Math.max(0, totalWorkforce - activeAttendance);
+  const totalTasks =
+    summary.scope === "employee"
+      ? (summary as EmployeeDashboardSummary).metrics.myTasks
+      : summary.metrics.totalTasks;
+  const completedTasks = summary.metrics.completedTasks;
+  const remainingTasks = Math.max(0, totalTasks - completedTasks);
+  const inProgressEstimate = Math.min(remainingTasks, Math.round(remainingTasks * 0.55));
+  const pendingEstimate = Math.max(0, remainingTasks - inProgressEstimate);
+  const departmentPieItems =
+    summary.scope === "employee"
+      ? []
+      : summary.departmentPerformance
+          .filter((department) => department.completed > 0)
+          .sort((a, b) => b.completed - a.completed)
+          .slice(0, 6)
+          .map((department, index) => ({
+            label: department.departmentName,
+            value: department.completed,
+            color: [
+              "var(--accent-strong)",
+              "var(--accent)",
+              "var(--success)",
+              "#f59e0b",
+              "#06b6d4",
+              "#f97316",
+            ][index] ?? "var(--text-faint)",
+          }));
+  const attendanceRate = Math.round((activeAttendance / Math.max(1, totalWorkforce)) * 100);
+  const latestProgress = summary.analytics.taskProgressTrend.at(-1)?.avgProgress ?? 0;
+  const previousProgress =
+    summary.analytics.taskProgressTrend.length > 1
+      ? summary.analytics.taskProgressTrend.at(-2)?.avgProgress ?? latestProgress
+      : latestProgress;
+  const progressDelta = Math.round((latestProgress - previousProgress) * 10) / 10;
+  const bestDepartment =
+    summary.scope === "employee" || summary.departmentPerformance.length === 0
+      ? null
+      : [...summary.departmentPerformance].sort((a, b) => b.averageProgress - a.averageProgress)[0];
+  const movingAverageCompletion = (() => {
+    const trend = summary.analytics.taskProgressTrend;
+    if (!trend.length) {
+      return 0;
+    }
+    const window = trend.slice(-5);
+    const avg = window.reduce((sum, item) => sum + item.completed, 0) / window.length;
+    return Math.max(0, avg);
+  })();
+  const forecastCompleted = Math.round(completedTasks + movingAverageCompletion);
+  const forecastCompletionRate = Math.round((forecastCompleted / Math.max(1, totalTasks)) * 100);
+  const teamProductivityScore = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        completionRate * 0.5 +
+          attendanceRate * 0.3 +
+          Math.max(0, Math.min(100, 50 + progressDelta * 5)) * 0.2
+      )
+    )
+  );
+  const riskAlerts = (() => {
+    const alerts: Array<{ id: string; label: string; detail: string; severity: "high" | "medium" }> = [];
+    if (attendanceRate < 65) {
+      alerts.push({
+        id: "attendance",
+        label: "Low live attendance",
+        detail: `Current attendance is ${attendanceRate}% which may impact delivery.`,
+        severity: "high",
+      });
+    }
+    if (completionRate < 55) {
+      alerts.push({
+        id: "completion",
+        label: "Completion is below target",
+        detail: `Current completion is ${completionRate}%. Review blocked tasks and owners.`,
+        severity: "high",
+      });
+    }
+    if (progressDelta < 0) {
+      alerts.push({
+        id: "momentum",
+        label: "Negative momentum",
+        detail: `Progress changed by ${progressDelta}%. Throughput is slowing down.`,
+        severity: "medium",
+      });
+    }
+    if (summary.scope !== "employee" && bestDepartment && bestDepartment.averageProgress < 50) {
+      alerts.push({
+        id: "department",
+        label: "Department performance dip",
+        detail: `${bestDepartment.departmentName} is leading but still below 50% average progress.`,
+        severity: "medium",
+      });
+    }
+    return alerts;
+  })();
+  const performerRankings = teamAnalyticsList
+    .map((member) => {
+      const memberCompletion =
+        Math.round((member.metrics.completedTasks / Math.max(1, member.metrics.totalTasks)) * 100);
+      const memberAttendance = Math.round((member.metrics.attendanceDays / 30) * 100);
+      const memberScore = Math.round(
+        member.metrics.avgProgress * 0.45 + memberCompletion * 0.35 + Math.min(100, memberAttendance) * 0.2
+      );
+      return {
+        id: member.user.id,
+        name: member.user.name,
+        role: formatRole(member.user.role),
+        score: memberScore,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+  const topPerformers = performerRankings.slice(0, 5);
+  const needsSupport = [...performerRankings].reverse().slice(0, 5);
 
   const handleGoogleConnect = async () => {
     try {
@@ -1613,282 +2045,198 @@ export default function DashboardPage() {
           </div>
         </Surface>
 
-        <section className="space-y-5" id="overview-section">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Workspace snapshot</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Overview</h2>
+        <Surface className="p-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveDashboardTab("analytics")}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold transition"
+              style={{
+                background: activeDashboardTab === "analytics" ? "var(--accent)" : "var(--surface-soft)",
+                color: activeDashboardTab === "analytics" ? "white" : "var(--text-main)",
+              }}
+            >
+              Analytics
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveDashboardTab("workspace")}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold transition"
+              style={{
+                background: activeDashboardTab === "workspace" ? "var(--accent)" : "var(--surface-soft)",
+                color: activeDashboardTab === "workspace" ? "white" : "var(--text-main)",
+              }}
+            >
+              Google Workspace
+            </button>
           </div>
-          <div className="space-y-5">
-            <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-              {overviewStats.map((stat) => (
-                <SummaryStatCard
-                  key={stat.label}
-                  label={stat.label}
-                  value={stat.value}
-                  helper={stat.helper}
-                  points={stat.points}
-                />
-              ))}
-            </section>
+        </Surface>
 
-            <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-              <div className="space-y-4">
+        {activeDashboardTab === "analytics" ? (
+          <>
+            <section className="space-y-5" id="overview-section">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Analytics snapshot</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Core metrics</h2>
+              </div>
+              <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
+                {overviewStats.map((stat) => (
+                  <SummaryStatCard
+                    key={stat.label}
+                    label={stat.label}
+                    value={stat.value}
+                    helper={stat.helper}
+                    points={stat.points}
+                  />
+                ))}
+              </section>
+              <div className="grid gap-4 xl:grid-cols-2">
                 <LineChartCard
                   title={leadershipView ? "Organization work-hour trend" : "Personal work-hour trend"}
-                  subtitle="A clearer view of daily work-hour movement."
+                  subtitle="Daily work-hour movement for workload tracking."
                   values={summary.analytics.workingHoursTrend.map((item) => item.hours)}
                   labels={summary.analytics.workingHoursTrend.map((item) => item.label)}
                   suffix="h"
                   stroke="var(--accent)"
                   fill="color-mix(in srgb, var(--accent) 14%, transparent)"
                 />
-                <Surface className="p-5">
-                  <div className="mb-4">
-                    <p className="text-sm font-semibold text-[var(--text-main)]">
-                      {leadershipView ? "Recent execution" : "Your latest tasks"}
-                    </p>
-                    <p className="mt-1 text-sm text-[var(--text-soft)]">
-                      {leadershipView
-                        ? "A sharper operational snapshot of active work."
-                        : "A focused snapshot of your most recent assignments."}
-                    </p>
-                  </div>
-                  {summary.recentTasks.length ? (
-                    <TaskList tasks={summary.recentTasks} user={user} />
-                  ) : (
-                    <StatePanel title="No tasks yet" description="Work items will appear here once tasks are assigned." />
-                  )}
-                </Surface>
-              </div>
-
-              <div className="space-y-4">
-                <AttendanceCard
-                  initialCheckedIn={summary.scope === "employee" ? summary.metrics.checkedIn : false}
-                />
-                <UpdateFeed
-                  title={leadershipView ? "Leadership updates" : "Manager/admin updates"}
-                  items={summary.analytics.updatesFeed.slice(0, 4)}
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-5" id="analytics-section">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Decision support</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Analytics</h2>
-          </div>
-          <div className="space-y-5">
-            {summary.scope !== "employee" ? (
-              <>
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <PerformanceBars
-                    title="Department performance"
-                    subtitle="Average progress across departments."
-                    items={summary.departmentPerformance.map((department) => ({
-                      label: department.departmentName,
-                      value: department.averageProgress,
-                      helper: `${department.completed}/${department.totalAssigned} tasks completed`,
-                    }))}
-                  />
-                  <PerformanceBars
-                    title="Role performance"
-                    subtitle="Average progress by organizational role."
-                    items={summary.rolePerformance.map((role) => ({
-                      label: formatRole(role.role),
-                      value: role.averageProgress,
-                      helper: `${role.completed}/${role.totalAssigned} tasks completed`,
-                    }))}
-                  />
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <HeatmapGrid
-                    title="Team attendance heatmap"
-                    subtitle="Daily participation trend across your organization."
-                    items={summary.analytics.attendanceHeatmap}
-                  />
-                  <LineChartCard
-                    title="Task progress trend"
-                    subtitle="Recent completion momentum across the organization."
-                    values={summary.analytics.taskProgressTrend.map((item) => item.avgProgress)}
-                    labels={summary.analytics.taskProgressTrend.map((item) => item.label)}
-                    suffix="%"
-                    stroke="var(--success)"
-                    fill="color-mix(in srgb, var(--success) 12%, transparent)"
-                  />
-                </div>
-
-                {teamLoading ? (
-                  <StatePanel
-                    title="Loading team members"
-                    description="Getting employees and interns ready for detailed analytics review."
-                  />
-                ) : teamMembers.length ? (
-                  <TeamAnalyticsPanel
-                    members={teamMembers}
-                    selectedMemberId={selectedMemberId}
-                    selectedAnalytics={selectedAnalytics}
-                    analyticsLoading={analyticsLoading}
-                    directoryTitle={
-                      summary.scope === "superadmin" ? "Admins, managers, employees & interns" : "Employees & interns"
-                    }
-                    directorySubtitle={
-                      summary.scope === "superadmin" ? "Leadership and execution directory" : "Team directory"
-                    }
-                    onSelect={setSelectedMemberId}
-                  />
-                ) : (
-                  <StatePanel
-                    title="No employees or interns yet"
-                    description="Once team members are added, their cards and analytics will appear here."
-                  />
-                )}
-              </>
-            ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
-                <HeatmapGrid
-                  title="Attendance heatmap"
-                  subtitle="Your attendance intensity over recent days."
-                  items={summary.analytics.attendanceHeatmap}
-                />
-                <LineChartCard
-                  title="Working hours trend"
-                  subtitle="Daily hours trend for quick workload analysis."
-                  values={summary.analytics.workingHoursTrend.map((item) => item.hours)}
-                  labels={summary.analytics.workingHoursTrend.map((item) => item.label)}
-                  suffix="h"
-                  stroke="var(--accent)"
-                  fill="color-mix(in srgb, var(--accent) 16%, transparent)"
-                />
                 <LineChartCard
                   title="Task progress trend"
-                  subtitle="Daily task completion movement based on recent updates."
+                  subtitle="Completion momentum across recent days."
                   values={summary.analytics.taskProgressTrend.map((item) => item.avgProgress)}
                   labels={summary.analytics.taskProgressTrend.map((item) => item.label)}
                   suffix="%"
                   stroke="var(--success)"
-                  fill="color-mix(in srgb, var(--success) 14%, transparent)"
+                  fill="color-mix(in srgb, var(--success) 12%, transparent)"
                 />
               </div>
-            )}
-          </div>
-        </section>
+            </section>
 
-        <section className="space-y-5" id="departments-section">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Organization map</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Departments</h2>
-          </div>
-          {(
-          summary.scope === "superadmin" && summary.analytics.superAdmin ? (
-            <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <SummaryStatCard
-                  label="Org progress"
-                  value={`${summary.analytics.superAdmin.organizationHealth.avgDepartmentProgress}%`}
-                  helper="Average progress across departments"
-                  points={summary.analytics.taskProgressTrend.map((item) => item.avgProgress).slice(-7)}
-                />
-                <SummaryStatCard
-                  label="Live attendance rate"
-                  value={`${summary.analytics.superAdmin.organizationHealth.liveAttendanceRate}%`}
-                  helper="Currently active workforce intensity"
-                  points={summary.analytics.attendanceHeatmap.map((item) => item.value).slice(-7)}
-                />
-                <SummaryStatCard
-                  label="Open issues"
-                  value={summary.analytics.superAdmin.organizationHealth.openIssues}
-                  helper="Unresolved task issues across departments"
-                  points={summary.analytics.taskProgressTrend.map((item) => item.created).slice(-7)}
-                />
+            <section className="space-y-5" id="analytics-section">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Decision support</p>
+                <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Analytics details</h2>
               </div>
-              <DepartmentWisePanel departments={summary.analytics.superAdmin.departmentWise} />
-            </div>
-          ) : (
-            <StatePanel
-              title="Departments analytics unavailable"
-              description="This section is visible only for Superadmin."
-            />
-          )
-          )}
-        </section>
-
-        <section className="space-y-5" id="workspace-section">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Connected work</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Google Workspace</h2>
-          </div>
-          {(
-          canUseGoogleWorkspace(summary.scope) ? (
-            <GoogleWorkspacePanel
-              status={workspaceStatus}
-              loading={workspaceLoading}
-              message={workspaceMessage}
-              projects={workspaceProjects}
-              users={workspaceUsers}
-              selectedProjectId={selectedWorkspaceProjectId}
-              selectedAttendeeIds={selectedWorkspaceAttendeeIds}
-              actionLoading={workspaceActionLoading}
-              meetResult={meetResult}
-              sheetResult={sheetResult}
-              driveResult={driveResult}
-              onSelectProject={setSelectedWorkspaceProjectId}
-              onToggleAttendee={toggleWorkspaceAttendee}
-              onConnect={handleGoogleConnect}
-              onDisconnect={handleGoogleDisconnect}
-              onCreateMeet={() => void runWorkspaceAction("meet")}
-              onCreateSheet={() => void runWorkspaceAction("sheets")}
-              onCreateDriveFolder={() => void runWorkspaceAction("drive")}
-            />
-          ) : (
-            <StatePanel title="Workspace tab unavailable" description="Only admins can connect Google Workspace." />
-          )
-          )}
-        </section>
-
-        <section className="space-y-5" id="activity-section">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Team rhythm</p>
-            <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Activity</h2>
-          </div>
-          {(
-          <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-            {summary.scope !== "employee" ? (
-              <Surface className="p-5">
-                <p className="text-sm font-semibold text-[var(--text-main)]">Department roster</p>
-                <div className="mt-4 space-y-2.5">
-                  {summary.departmentBreakdown.map((department) => (
-                    <div
-                      key={department.id}
-                      className="rounded-2xl border px-4 py-3"
-                      style={{
-                        background: "var(--surface-soft)",
-                        borderColor: "var(--border)",
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-[var(--text-main)]">{department.name}</p>
-                          <p className="text-xs text-[var(--text-soft)]">
-                            Head: {department.head?.name || "Not assigned"}
-                          </p>
-                        </div>
-                        <span className="text-xs font-semibold text-[var(--text-soft)]">
-                          {department._count?.users ?? 0} members
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+              {summary.scope !== "employee" ? (
+                <>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <HeatmapGrid
+                      title="Team attendance heatmap"
+                      subtitle="Daily participation trend across your organization."
+                      items={summary.analytics.attendanceHeatmap}
+                    />
+                    <DonutChartCard
+                      title="Attendance split (employees + interns)"
+                      subtitle="Real-time check-in status across the active workforce."
+                      items={[
+                        { label: "Checked in", value: activeAttendance, color: "var(--success)" },
+                        { label: "Not checked in", value: inactiveAttendance, color: "var(--text-faint)" },
+                      ]}
+                    />
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <DonutChartCard
+                      title="Total work progress"
+                      subtitle="Completed vs remaining tasks across all departments."
+                      items={[
+                        { label: "Completed", value: completedTasks, color: "var(--success)" },
+                        { label: "In progress", value: inProgressEstimate, color: "var(--accent)" },
+                        { label: "Pending", value: pendingEstimate, color: "var(--text-faint)" },
+                      ]}
+                    />
+                    <DonutChartCard
+                      title="Department progress contribution"
+                      subtitle="Share of completed work by department."
+                      items={
+                        departmentPieItems.length
+                          ? departmentPieItems
+                          : [{ label: "No completed tasks yet", value: 1, color: "var(--text-faint)" }]
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-3">
+                    <TeamProductivityScoreCard
+                      score={teamProductivityScore}
+                      completionRate={completionRate}
+                      attendanceRate={attendanceRate}
+                      momentum={progressDelta}
+                    />
+                    <WeeklyForecastCard
+                      forecastPercent={forecastCompletionRate}
+                      forecastCompleted={forecastCompleted}
+                      baseCompleted={completedTasks}
+                    />
+                    <RiskAlertsCard alerts={riskAlerts} />
+                  </div>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <PerformerListCard
+                      title="Top performers"
+                      subtitle="Highest consistency across progress and attendance."
+                      items={topPerformers}
+                    />
+                    <PerformerListCard
+                      title="Needs support"
+                      subtitle="Lowest current consistency scores."
+                      items={needsSupport}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <HeatmapGrid
+                    title="Attendance heatmap"
+                    subtitle="Your attendance intensity over recent days."
+                    items={summary.analytics.attendanceHeatmap}
+                  />
+                  <DonutChartCard
+                    title="Task status breakdown"
+                    subtitle="Visual split of your current workload."
+                    items={[
+                      { label: "Pending", value: pendingEstimate, color: "var(--text-faint)" },
+                      { label: "In progress", value: inProgressEstimate, color: "var(--accent)" },
+                      { label: "Done", value: summary.metrics.completedTasks, color: "var(--success)" },
+                    ]}
+                  />
                 </div>
-              </Surface>
-            ) : null}
-
-            <UpdateFeed title="Leadership update feed" items={summary.analytics.updatesFeed} />
-          </div>
-          )}
-        </section>
+              )}
+            </section>
+          </>
+        ) : (
+          <section className="space-y-5" id="workspace-section">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Connected tools</p>
+              <h2 className="mt-2 text-2xl font-semibold text-[var(--text-main)]">Google Workspace</h2>
+            </div>
+            {canUseGoogleWorkspace(summary.scope) ? (
+              <GoogleWorkspacePanel
+                status={workspaceStatus}
+                loading={workspaceLoading}
+                message={workspaceMessage}
+                projects={workspaceProjects}
+                users={workspaceUsers}
+                selectedProjectId={selectedWorkspaceProjectId}
+                selectedAttendeeIds={selectedWorkspaceAttendeeIds}
+                actionLoading={workspaceActionLoading}
+                meetResult={meetResult}
+                sheetResult={sheetResult}
+                driveResult={driveResult}
+                onSelectProject={setSelectedWorkspaceProjectId}
+                onToggleAttendee={toggleWorkspaceAttendee}
+                onConnect={handleGoogleConnect}
+                onDisconnect={handleGoogleDisconnect}
+                onCreateMeet={() => void runWorkspaceAction("meet")}
+                onCreateSheet={() => void runWorkspaceAction("sheets")}
+                onCreateDriveFolder={() => void runWorkspaceAction("drive")}
+                onSetMessage={setWorkspaceMessage}
+              />
+            ) : (
+              <StatePanel
+                title="Google Workspace unavailable"
+                description="Only admin and superadmin accounts can use this tab."
+              />
+            )}
+          </section>
+        )}
       </div>
     </CRMShell>
   );
