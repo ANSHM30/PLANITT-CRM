@@ -24,6 +24,10 @@ model User {
   headedDepartment          Department?                @relation("DepartmentHead")
   googleWorkspaceConnection GoogleWorkspaceConnection?
   chatMessages              ChatMessage[]
+  createdChatGroups         ChatGroup[]                 @relation("ChatGroupCreator")
+  groupMemberships          ChatGroupMember[]
+  hiddenChatMessages        ChatMessageHidden[]
+  chatRoomReads             ChatRoomRead[]
   ownedProjects             Project[]
   assignments               TaskAssignment[]
   reportedIssues            TaskIssue[]                @relation("ReportedIssues")
@@ -146,7 +150,15 @@ model GoogleWorkspaceConnection {
 model ChatMessage {
   id           String          @id @default(cuid())
   channelType  ChatChannelType
+  messageType  ChatMessageType @default(TEXT)
   content      String
+  attachmentUrl String?
+  attachmentMimeType String?
+  attachmentFileName String?
+  isDeleted    Boolean         @default(false)
+  deletedAt    DateTime?
+  replyToId    String?
+  groupId      String?
   authorId     String
   departmentId String?
   projectId    String?
@@ -155,10 +167,66 @@ model ChatMessage {
   author       User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
   department   Department?     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   project      Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  group        ChatGroup?      @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  replyTo      ChatMessage?    @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies      ChatMessage[]   @relation("MessageReplies")
+  hiddenBy     ChatMessageHidden[]
 
   @@index([channelType, departmentId, createdAt])
   @@index([channelType, projectId, createdAt])
+  @@index([channelType, groupId, createdAt])
   @@index([authorId])
+}
+
+model ChatMessageHidden {
+  id        String      @id @default(cuid())
+  userId    String
+  messageId String
+  hiddenAt  DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId, hiddenAt])
+}
+
+model ChatRoomRead {
+  id           String          @id @default(cuid())
+  userId       String
+  channelType  ChatChannelType
+  departmentId String?
+  projectId    String?
+  groupId      String?
+  lastReadAt   DateTime        @default(now())
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, channelType, departmentId, projectId])
+  @@index([userId, channelType, groupId])
+}
+
+model ChatGroup {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  createdBy   User              @relation("ChatGroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members     ChatGroupMember[]
+  messages    ChatMessage[]
+}
+
+model ChatGroupMember {
+  id        String    @id @default(cuid())
+  groupId   String
+  userId    String
+  addedById String?
+  createdAt DateTime  @default(now())
+  group     ChatGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId, createdAt])
 }
 
 enum UserRole {
@@ -178,4 +246,12 @@ enum TaskStatus {
 enum ChatChannelType {
   DEPARTMENT
   PROJECT
+  GROUP
+}
+
+enum ChatMessageType {
+  TEXT
+  IMAGE
+  PDF
+  STICKER
 }

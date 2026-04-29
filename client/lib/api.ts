@@ -90,3 +90,17 @@ export async function apiDelete<T>(path: string): Promise<T> {
 
   return parseResponse<T>(response);
 }
+
+export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: getToken()
+      ? {
+          Authorization: `Bearer ${getToken()}`,
+        }
+      : undefined,
+    body,
+  });
+
+  return parseResponse<T>(response);
+}

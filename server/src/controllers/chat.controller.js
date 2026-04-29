@@ -2,9 +2,16 @@ import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
 
 const LEADERSHIP_ROLES = ["SUPERADMIN", "ADMIN"];
+const GROUP_ADMIN_ROLES = ["SUPERADMIN", "ADMIN", "MANAGER"];
+const ACCESS_CACHE_TTL_MS = 30_000;
+const accessCache = new Map();
 
 function isLeadership(user) {
   return LEADERSHIP_ROLES.includes(user.role);
+}
+
+function canManageGroups(user) {
+  return GROUP_ADMIN_ROLES.includes(user.role);
 }
 
 function getVisibleProjectWhere(user) {
@@ -50,7 +57,24 @@ function toMessagePayload(message) {
     channelType: message.channelType,
     departmentId: message.departmentId,
     projectId: message.projectId,
+    groupId: message.groupId,
+    messageType: message.messageType,
     content: message.content,
+    attachmentUrl: message.attachmentUrl,
+    attachmentMimeType: message.attachmentMimeType,
+    attachmentFileName: message.attachmentFileName,
+    isDeleted: message.isDeleted,
+    deletedAt: message.deletedAt,
+    replyTo: message.replyTo
+      ? {
+          id: message.replyTo.id,
+          content: message.replyTo.content,
+          messageType: message.replyTo.messageType,
+          attachmentFileName: message.replyTo.attachmentFileName,
+          isDeleted: message.replyTo.isDeleted,
+          author: message.replyTo.author,
+        }
+      : null,
     createdAt: message.createdAt,
     author: message.author,
   };
@@ -97,15 +121,57 @@ async function canAccessProjectRoom(authUser, projectId) {
 }
 
 async function canAccessRoom(authUser, channelType, channelId) {
+  const cacheKey = `${authUser.userId}:${channelType}:${channelId}`;
+  const cached = accessCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  let value = false;
   if (channelType === "DEPARTMENT") {
-    return canAccessDepartmentRoom(authUser, channelId);
+    value = await canAccessDepartmentRoom(authUser, channelId);
+  } else if (channelType === "PROJECT") {
+    value = await canAccessProjectRoom(authUser, channelId);
+  } else if (channelType === "GROUP") {
+    if (isLeadership(authUser) || authUser.role === "MANAGER") {
+      value = Boolean(await prisma.chatGroup.findUnique({ where: { id: channelId }, select: { id: true } }));
+    } else {
+      value = Boolean(
+        await prisma.chatGroupMember.findFirst({
+          where: {
+            groupId: channelId,
+            userId: authUser.userId,
+          },
+          select: { id: true },
+        })
+      );
+    }
   }
 
-  if (channelType === "PROJECT") {
-    return canAccessProjectRoom(authUser, channelId);
+  accessCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + ACCESS_CACHE_TTL_MS,
+  });
+  return value;
+}
+
+function getMessageTypeFromMime(mimeType) {
+  if (!mimeType) {
+    return "TEXT";
   }
 
-  return false;
+  if (mimeType === "application/pdf") {
+    return "PDF";
+  }
+
+  if (mimeType.startsWith("image/")) {
+    if (mimeType === "image/webp" || mimeType === "image/gif") {
+      return "STICKER";
+    }
+    return "IMAGE";
+  }
+
+  return "TEXT";
 }
 
 export async function getChatRooms(req, res) {
@@ -115,7 +181,7 @@ export async function getChatRooms(req, res) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const [departments, projects] = await Promise.all([
+    const [departments, projects, groups, reads] = await Promise.all([
       prisma.department.findMany({
         where: isLeadership(req.user)
           ? {}
@@ -147,22 +213,173 @@ export async function getChatRooms(req, res) {
           },
         },
       }),
+      prisma.chatGroup.findMany({
+        where: canManageGroups(req.user)
+          ? {}
+          : {
+              members: {
+                some: {
+                  userId: req.user.userId,
+                },
+              },
+            },
+        orderBy: { updatedAt: "desc" },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          _count: {
+            select: { members: true },
+          },
+        },
+      }),
+      prisma.chatRoomRead.findMany({
+        where: { userId: req.user.userId },
+        select: { channelType: true, departmentId: true, projectId: true, groupId: true, lastReadAt: true },
+      }),
     ]);
 
-    return res.json({
-      departments: departments.map((department) => ({
+    const readMap = new Map(
+      reads.map((read) => [
+        `${read.channelType}:${
+          read.channelType === "DEPARTMENT"
+            ? read.departmentId
+            : read.channelType === "PROJECT"
+              ? read.projectId
+              : read.groupId
+        }`,
+        read.lastReadAt,
+      ])
+    );
+
+    const departmentIds = departments.map((department) => department.id);
+    const projectIds = projects.map((project) => project.id);
+
+    const groupIds = groups.map((group) => group.id);
+    const [latestDepartmentMessages, latestProjectMessages, latestGroupMessages] = await Promise.all([
+      departmentIds.length
+        ? prisma.chatMessage.findMany({
+            where: {
+              channelType: "DEPARTMENT",
+              departmentId: { in: departmentIds },
+              hiddenBy: { none: { userId: req.user.userId } },
+            },
+            orderBy: [{ departmentId: "asc" }, { createdAt: "desc" }],
+            distinct: ["departmentId"],
+            select: {
+              departmentId: true,
+              authorId: true,
+              content: true,
+              messageType: true,
+              attachmentFileName: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      projectIds.length
+        ? prisma.chatMessage.findMany({
+            where: {
+              channelType: "PROJECT",
+              projectId: { in: projectIds },
+              hiddenBy: { none: { userId: req.user.userId } },
+            },
+            orderBy: [{ projectId: "asc" }, { createdAt: "desc" }],
+            distinct: ["projectId"],
+            select: {
+              projectId: true,
+              authorId: true,
+              content: true,
+              messageType: true,
+              attachmentFileName: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      groupIds.length
+        ? prisma.chatMessage.findMany({
+            where: {
+              channelType: "GROUP",
+              groupId: { in: groupIds },
+              hiddenBy: { none: { userId: req.user.userId } },
+            },
+            orderBy: [{ groupId: "asc" }, { createdAt: "desc" }],
+            distinct: ["groupId"],
+            select: {
+              groupId: true,
+              authorId: true,
+              content: true,
+              messageType: true,
+              attachmentFileName: true,
+              createdAt: true,
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const latestMap = new Map();
+    for (const message of latestDepartmentMessages) {
+      latestMap.set(`DEPARTMENT:${message.departmentId}`, message);
+    }
+    for (const message of latestProjectMessages) {
+      latestMap.set(`PROJECT:${message.projectId}`, message);
+    }
+    for (const message of latestGroupMessages) {
+      latestMap.set(`GROUP:${message.groupId}`, message);
+    }
+
+    function roomMeta(channelType, roomId) {
+      const key = `${channelType}:${roomId}`;
+      const lastMessage = latestMap.get(key);
+      const lastReadAt = readMap.get(key) || new Date(0);
+      const unreadCount =
+        lastMessage && lastMessage.authorId !== req.user.userId && lastMessage.createdAt > lastReadAt ? 1 : 0;
+      return {
+        unreadCount,
+        lastMessagePreview: lastMessage
+          ? lastMessage.messageType === "TEXT"
+            ? lastMessage.content
+            : lastMessage.messageType === "PDF"
+              ? `PDF: ${lastMessage.attachmentFileName || "Attachment"}`
+              : "Image attachment"
+          : "",
+        lastMessageAt: lastMessage?.createdAt || null,
+      };
+    }
+
+    const departmentWithMeta = await Promise.all(
+      departments.map(async (department) => ({
         id: department.id,
         type: "DEPARTMENT",
         name: department.name,
         subtitle: `${department.code} | ${department._count.users} members`,
-      })),
-      projects: projects.map((project) => ({
+        ...roomMeta("DEPARTMENT", department.id),
+      }))
+    );
+
+    const projectsWithMeta = await Promise.all(
+      projects.map(async (project) => ({
         id: project.id,
         type: "PROJECT",
         name: project.name,
         subtitle: project.department?.name ?? "No department",
         department: project.department,
-      })),
+        ...roomMeta("PROJECT", project.id),
+      }))
+    );
+    const groupsWithMeta = await Promise.all(
+      groups.map(async (group) => ({
+        id: group.id,
+        type: "GROUP",
+        name: group.name,
+        subtitle: group.description || `${group._count.members} members`,
+        ...roomMeta("GROUP", group.id),
+      }))
+    );
+
+    return res.json({
+      departments: departmentWithMeta,
+      projects: projectsWithMeta,
+      groups: groupsWithMeta,
     });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -178,11 +395,18 @@ export async function getChatMessages(req, res) {
       return res.status(403).json({ error: "You do not have access to this chat room" });
     }
 
+    const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
     const messages = await prisma.chatMessage.findMany({
-      where:
-        channelType === "DEPARTMENT"
-          ? { channelType, departmentId: channelId }
-          : { channelType, projectId: channelId },
+      where: {
+        channelType,
+        ...(channelType === "DEPARTMENT"
+          ? { departmentId: channelId }
+          : channelType === "PROJECT"
+            ? { projectId: channelId }
+            : { groupId: channelId }),
+        hiddenBy: { none: { userId: req.user.userId } },
+        ...(query ? { content: { contains: query, mode: "insensitive" } } : {}),
+      },
       orderBy: { createdAt: "desc" },
       take: 80,
       include: {
@@ -192,6 +416,23 @@ export async function getChatMessages(req, res) {
             name: true,
             email: true,
             role: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            attachmentFileName: true,
+            isDeleted: true,
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
           },
         },
       },
@@ -208,8 +449,16 @@ export async function createChatMessage(req, res) {
     const channelType = String(req.body.channelType || "").toUpperCase();
     const channelId = String(req.body.channelId || "");
     const content = typeof req.body.content === "string" ? req.body.content.trim() : "";
+    const attachmentUrl = typeof req.body.attachmentUrl === "string" ? req.body.attachmentUrl.trim() : "";
+    const attachmentMimeType =
+      typeof req.body.attachmentMimeType === "string" ? req.body.attachmentMimeType.trim() : "";
+    const attachmentFileName =
+      typeof req.body.attachmentFileName === "string" ? req.body.attachmentFileName.trim() : "";
+    const messageTypeRaw = typeof req.body.messageType === "string" ? req.body.messageType.toUpperCase() : "TEXT";
+    const messageType = ["TEXT", "IMAGE", "PDF", "STICKER"].includes(messageTypeRaw) ? messageTypeRaw : "TEXT";
+    const replyToId = typeof req.body.replyToId === "string" ? req.body.replyToId.trim() : "";
 
-    if (!content) {
+    if (!content && !attachmentUrl) {
       return res.status(400).json({ error: "Message cannot be empty" });
     }
 
@@ -221,12 +470,49 @@ export async function createChatMessage(req, res) {
       return res.status(403).json({ error: "You do not have access to this chat room" });
     }
 
+    let replyTo = null;
+    if (replyToId) {
+      replyTo = await prisma.chatMessage.findUnique({
+        where: { id: replyToId },
+        select: {
+          id: true,
+          channelType: true,
+          departmentId: true,
+          projectId: true,
+          groupId: true,
+        },
+      });
+
+      if (!replyTo) {
+        return res.status(404).json({ error: "Replied message not found" });
+      }
+
+      const sameRoom =
+        replyTo.channelType === channelType &&
+        ((channelType === "DEPARTMENT" && replyTo.departmentId === channelId) ||
+          (channelType === "PROJECT" && replyTo.projectId === channelId) ||
+          (channelType === "GROUP" && replyTo.groupId === channelId));
+
+      if (!sameRoom) {
+        return res.status(400).json({ error: "You can only reply within the same room" });
+      }
+    }
+
     const message = await prisma.chatMessage.create({
       data: {
         channelType,
         content,
+        messageType,
+        attachmentUrl: attachmentUrl || null,
+        attachmentMimeType: attachmentMimeType || null,
+        attachmentFileName: attachmentFileName || null,
+        replyToId: replyTo?.id ?? null,
         authorId: req.user.userId,
-        ...(channelType === "DEPARTMENT" ? { departmentId: channelId } : { projectId: channelId }),
+        ...(channelType === "DEPARTMENT"
+          ? { departmentId: channelId }
+          : channelType === "PROJECT"
+            ? { projectId: channelId }
+            : { groupId: channelId }),
       },
       include: {
         author: {
@@ -237,13 +523,409 @@ export async function createChatMessage(req, res) {
             role: true,
           },
         },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            attachmentFileName: true,
+            isDeleted: true,
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
       },
     });
 
     const payload = toMessagePayload(message);
     emitCRMEvent("chat:message", payload);
+    void prisma.chatRoomRead
+      .upsert({
+        where: {
+          id: `${req.user.userId}:${channelType}:${channelId}`,
+        },
+        update: { lastReadAt: new Date() },
+        create: {
+          id: `${req.user.userId}:${channelType}:${channelId}`,
+          userId: req.user.userId,
+          channelType,
+          ...(channelType === "DEPARTMENT"
+            ? { departmentId: channelId }
+            : channelType === "PROJECT"
+              ? { projectId: channelId }
+              : { groupId: channelId }),
+          lastReadAt: new Date(),
+        },
+      })
+      .catch(() => {});
 
     return res.status(201).json(payload);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteChatMessage(req, res) {
+  try {
+    const messageId = String(req.params.id || "");
+    const mode = String(req.query.mode || "everyone").toLowerCase();
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      select: {
+        id: true,
+        authorId: true,
+        channelType: true,
+        departmentId: true,
+        projectId: true,
+        groupId: true,
+        isDeleted: true,
+      },
+    });
+
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    const channelId =
+      message.channelType === "DEPARTMENT"
+        ? message.departmentId
+        : message.channelType === "PROJECT"
+          ? message.projectId
+          : message.groupId;
+    if (!(await canAccessRoom(req.user, message.channelType, channelId))) {
+      return res.status(403).json({ error: "You do not have access to this chat room" });
+    }
+
+    if (mode === "me") {
+      await prisma.chatMessageHidden.upsert({
+        where: {
+          userId_messageId: {
+            userId: req.user.userId,
+            messageId: message.id,
+          },
+        },
+        update: { hiddenAt: new Date() },
+        create: {
+          userId: req.user.userId,
+          messageId: message.id,
+        },
+      });
+      return res.json({ success: true });
+    }
+
+    const canDeleteEveryone = message.authorId === req.user.userId || isLeadership(req.user);
+    if (!canDeleteEveryone) {
+      return res.status(403).json({ error: "Only sender or admin can delete for everyone" });
+    }
+
+    if (message.isDeleted) {
+      return res.status(200).json({ success: true });
+    }
+
+    const updated = await prisma.chatMessage.update({
+      where: { id: messageId },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        content: "This message was deleted",
+        attachmentUrl: null,
+        attachmentMimeType: null,
+        attachmentFileName: null,
+        messageType: "TEXT",
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            attachmentFileName: true,
+            isDeleted: true,
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    emitCRMEvent("chat:message:update", toMessagePayload(updated));
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function markChatRoomRead(req, res) {
+  try {
+    const channelType = String(req.body.channelType || "").toUpperCase();
+    const channelId = String(req.body.channelId || "");
+    if (!(await canAccessRoom(req.user, channelType, channelId))) {
+      return res.status(403).json({ error: "You do not have access to this chat room" });
+    }
+    await prisma.chatRoomRead.upsert({
+      where: {
+        id: `${req.user.userId}:${channelType}:${channelId}`,
+      },
+      update: { lastReadAt: new Date() },
+      create: {
+        id: `${req.user.userId}:${channelType}:${channelId}`,
+        userId: req.user.userId,
+        channelType,
+        ...(channelType === "DEPARTMENT"
+          ? { departmentId: channelId }
+          : channelType === "PROJECT"
+            ? { projectId: channelId }
+            : { groupId: channelId }),
+        lastReadAt: new Date(),
+      },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function createChatGroup(req, res) {
+  try {
+    if (!canManageGroups(req.user)) {
+      return res.status(403).json({ error: "Only admin, manager, or superadmin can create groups" });
+    }
+    const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+    const description = typeof req.body.description === "string" ? req.body.description.trim() : "";
+    const memberIds = Array.isArray(req.body.memberIds) ? req.body.memberIds.map(String) : [];
+    if (!name) {
+      return res.status(400).json({ error: "Group name is required" });
+    }
+    const uniqueMemberIds = [...new Set([req.user.userId, ...memberIds])];
+    const group = await prisma.chatGroup.create({
+      data: {
+        name,
+        description: description || null,
+        createdById: req.user.userId,
+        members: {
+          create: uniqueMemberIds.map((userId) => ({
+            userId,
+            addedById: req.user.userId,
+          })),
+        },
+      },
+      include: {
+        _count: { select: { members: true } },
+      },
+    });
+    return res.status(201).json(group);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function getChatGroupById(req, res) {
+  try {
+    const groupId = String(req.params.id || "");
+    if (!(await canAccessRoom(req.user, "GROUP", groupId))) {
+      return res.status(403).json({ error: "You do not have access to this group" });
+    }
+    const group = await prisma.chatGroup.findUnique({
+      where: { id: groupId },
+      include: { _count: { select: { members: true } } },
+    });
+    if (!group) {
+      return res.status(404).json({ error: "Group not found" });
+    }
+    return res.json(group);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function getChatGroupMembers(req, res) {
+  try {
+    const groupId = String(req.params.id || "");
+    if (!(await canAccessRoom(req.user, "GROUP", groupId))) {
+      return res.status(403).json({ error: "You do not have access to this group" });
+    }
+    const members = await prisma.chatGroupMember.findMany({
+      where: { groupId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    return res.json(members);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function updateChatGroup(req, res) {
+  try {
+    if (!canManageGroups(req.user)) {
+      return res.status(403).json({ error: "Only admin, manager, or superadmin can update groups" });
+    }
+    const groupId = String(req.params.id || "");
+    const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
+    const description = typeof req.body.description === "string" ? req.body.description.trim() : "";
+    const group = await prisma.chatGroup.update({
+      where: { id: groupId },
+      data: {
+        ...(name ? { name } : {}),
+        ...(typeof req.body.description === "string" ? { description: description || null } : {}),
+      },
+    });
+    return res.json(group);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteChatGroup(req, res) {
+  try {
+    if (!canManageGroups(req.user)) {
+      return res.status(403).json({ error: "Only admin, manager, or superadmin can delete groups" });
+    }
+    const groupId = String(req.params.id || "");
+    await prisma.chatGroup.delete({
+      where: { id: groupId },
+    });
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function addChatGroupMembers(req, res) {
+  try {
+    if (!canManageGroups(req.user)) {
+      return res.status(403).json({ error: "Only admin, manager, or superadmin can add members" });
+    }
+    const groupId = String(req.params.id || "");
+    const memberIds = Array.isArray(req.body.memberIds) ? req.body.memberIds.map(String) : [];
+    if (!memberIds.length) {
+      return res.status(400).json({ error: "memberIds array is required" });
+    }
+    await prisma.chatGroupMember.createMany({
+      data: [...new Set(memberIds)].map((userId) => ({
+        groupId,
+        userId,
+        addedById: req.user.userId,
+      })),
+      skipDuplicates: true,
+    });
+    const members = await prisma.chatGroupMember.findMany({
+      where: { groupId },
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    return res.json(members);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function removeChatGroupMember(req, res) {
+  try {
+    if (!canManageGroups(req.user)) {
+      return res.status(403).json({ error: "Only admin, manager, or superadmin can remove members" });
+    }
+    const groupId = String(req.params.id || "");
+    const userId = String(req.params.userId || "");
+    await prisma.chatGroupMember.deleteMany({
+      where: { groupId, userId },
+    });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function clearChatLocal(req, res) {
+  try {
+    const channelType = String(req.params.type || "").toUpperCase();
+    const channelId = String(req.params.id || "");
+    if (!(await canAccessRoom(req.user, channelType, channelId))) {
+      return res.status(403).json({ error: "You do not have access to this chat room" });
+    }
+    const messages = await prisma.chatMessage.findMany({
+      where: {
+        channelType,
+        ...(channelType === "DEPARTMENT"
+          ? { departmentId: channelId }
+          : channelType === "PROJECT"
+            ? { projectId: channelId }
+            : { groupId: channelId }),
+      },
+      select: { id: true },
+    });
+    if (!messages.length) {
+      return res.json({ success: true, hidden: 0 });
+    }
+    await prisma.chatMessageHidden.createMany({
+      data: messages.map((message) => ({
+        userId: req.user.userId,
+        messageId: message.id,
+      })),
+      skipDuplicates: true,
+    });
+    return res.json({ success: true, hidden: messages.length });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function uploadChatAttachment(req, res) {
+  try {
+    const channelType = String(req.body.channelType || "").toUpperCase();
+    const channelId = String(req.body.channelId || "");
+
+    if (!(await canAccessRoom(req.user, channelType, channelId))) {
+      return res.status(403).json({ error: "You do not have access to this chat room" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const messageType = getMessageTypeFromMime(req.file.mimetype);
+    if (!["IMAGE", "PDF", "STICKER"].includes(messageType)) {
+      return res.status(400).json({ error: "Unsupported file type. Only images and PDFs are allowed." });
+    }
+
+    return res.status(201).json({
+      messageType,
+      attachmentUrl: `/uploads/chat/${req.file.filename}`,
+      attachmentMimeType: req.file.mimetype,
+      attachmentFileName: req.file.originalname,
+      size: req.file.size,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

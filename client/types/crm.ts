@@ -56,15 +56,44 @@ export type CRMUser = {
 
 export type ChatRoom = {
   id: string;
-  type: "DEPARTMENT" | "PROJECT";
+  type: "DEPARTMENT" | "PROJECT" | "GROUP";
   name: string;
   subtitle: string;
+  unreadCount?: number;
+  lastMessagePreview?: string;
+  lastMessageAt?: string | null;
   department?: Department | null;
 };
 
 export type ChatRoomsResponse = {
   departments: ChatRoom[];
   projects: ChatRoom[];
+  groups: ChatRoom[];
+};
+
+export type ChatGroup = {
+  id: string;
+  name: string;
+  description?: string | null;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: {
+    members: number;
+  };
+};
+
+export type ChatGroupMember = {
+  id: string;
+  groupId: string;
+  userId: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+  };
+  createdAt: string;
 };
 
 export type ChatMessage = {
@@ -72,7 +101,27 @@ export type ChatMessage = {
   channelType: ChatRoom["type"];
   departmentId?: string | null;
   projectId?: string | null;
+  groupId?: string | null;
+  messageType: "TEXT" | "IMAGE" | "PDF" | "STICKER";
   content: string;
+  attachmentUrl?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentFileName?: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  replyTo?: {
+    id: string;
+    content: string;
+    messageType: "TEXT" | "IMAGE" | "PDF" | "STICKER";
+    attachmentFileName?: string | null;
+    isDeleted?: boolean;
+    author: {
+      id: string;
+      name: string;
+      email: string;
+      role: UserRole;
+    };
+  } | null;
   createdAt: string;
   author: {
     id: string;
@@ -80,6 +129,14 @@ export type ChatMessage = {
     email: string;
     role: UserRole;
   };
+};
+
+export type ChatAttachmentUploadResponse = {
+  messageType: "IMAGE" | "PDF" | "STICKER";
+  attachmentUrl: string;
+  attachmentMimeType: string;
+  attachmentFileName: string;
+  size: number;
 };
 
 export type AssignedUser = {
