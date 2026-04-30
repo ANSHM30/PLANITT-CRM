@@ -968,6 +968,9 @@ function GoogleWorkspacePanel({
   meetResult,
   sheetResult,
   driveResult,
+  onClearMeetResult,
+  onClearSheetResult,
+  onClearDriveResult,
   onSelectProject,
   onToggleAttendee,
   onConnect,
@@ -988,6 +991,9 @@ function GoogleWorkspacePanel({
   meetResult: GoogleMeetSessionResult | null;
   sheetResult: GoogleProjectSheetResult | null;
   driveResult: GoogleDriveFolderResult | null;
+  onClearMeetResult: () => void;
+  onClearSheetResult: () => void;
+  onClearDriveResult: () => void;
   onSelectProject: (projectId: string) => void;
   onToggleAttendee: (userId: string) => void;
   onConnect: () => void;
@@ -1339,6 +1345,14 @@ function GoogleWorkspacePanel({
                   >
                     {sharingAsset === "meet" ? "Sharing..." : "Share to chat"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={onClearMeetResult}
+                    className="rounded-xl border px-3 py-2 text-sm font-semibold text-rose-600"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    Delete
+                  </button>
                 </div>
               </article>
             ) : null}
@@ -1349,15 +1363,25 @@ function GoogleWorkspacePanel({
                 <p className="mt-1 text-sm text-[var(--text-soft)]">
                   {sheetResult.project.name} | {sheetResult.rowCount} rows written
                 </p>
-                <a
-                  href={sheetResult.spreadsheetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-3 inline-flex rounded-xl px-3 py-2 text-sm font-semibold text-white"
-                  style={{ background: "var(--accent)" }}
-                >
-                  Open Sheet
-                </a>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href={sheetResult.spreadsheetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex rounded-xl px-3 py-2 text-sm font-semibold text-white"
+                    style={{ background: "var(--accent)" }}
+                  >
+                    Open Sheet
+                  </a>
+                  <button
+                    type="button"
+                    onClick={onClearSheetResult}
+                    className="rounded-xl border px-3 py-2 text-sm font-semibold text-rose-600"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </article>
             ) : null}
 
@@ -1408,6 +1432,14 @@ function GoogleWorkspacePanel({
                     style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
                   >
                     {sharingAsset === "drive" ? "Sharing..." : "Share to chat"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClearDriveResult}
+                    className="rounded-xl border px-3 py-2 text-sm font-semibold text-rose-600"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    Delete
                   </button>
                 </div>
               </article>
@@ -2087,16 +2119,28 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              <div className="mt-4">
-                <LineChartCard
-                  title="Momentum"
-                  subtitle="Recent progress trend across the workspace."
-                  values={summary.analytics.taskProgressTrend.map((item) => item.avgProgress)}
-                  labels={summary.analytics.taskProgressTrend.map((item) => item.label)}
-                  suffix="%"
-                  stroke="var(--accent-strong)"
-                  fill="color-mix(in srgb, var(--accent) 12%, transparent)"
-                />
+              <div
+                className="mt-4 rounded-[20px] border p-4"
+                style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+              >
+                <p className="text-sm font-semibold text-[var(--text-main)]">Momentum</p>
+                <p className="mt-1 text-sm text-[var(--text-soft)]">Recent progress trend across the workspace.</p>
+                <div className="mt-3 h-24 overflow-hidden rounded-xl border p-2" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+                  <svg viewBox="0 0 360 80" className="h-full w-full" aria-hidden="true">
+                    <path
+                      d={buildLinePath(
+                        summary.analytics.taskProgressTrend.map((item) => item.avgProgress),
+                        360,
+                        80
+                      )}
+                      fill="none"
+                      stroke="var(--accent-strong)"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
@@ -2277,6 +2321,9 @@ export default function DashboardPage() {
                 meetResult={meetResult}
                 sheetResult={sheetResult}
                 driveResult={driveResult}
+                onClearMeetResult={() => setMeetResult(null)}
+                onClearSheetResult={() => setSheetResult(null)}
+                onClearDriveResult={() => setDriveResult(null)}
                 onSelectProject={setSelectedWorkspaceProjectId}
                 onToggleAttendee={toggleWorkspaceAttendee}
                 onConnect={handleGoogleConnect}

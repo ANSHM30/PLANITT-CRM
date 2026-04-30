@@ -245,62 +245,96 @@ export function TaskList({
             boxShadow: "var(--shadow-card)",
           }}
         >
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_0.8fr_0.9fr_auto] xl:items-center">
-            <div className="min-w-0">
-              <h3 className="truncate text-base font-semibold text-[var(--text-main)]">{task.title}</h3>
-              <p className="mt-1 truncate text-sm text-[var(--text-soft)]">
-                {task.description || "No description"}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {task.assignments.slice(0, 3).map((assignment) => (
-                  <span
-                    key={assignment.id}
-                    className="rounded-md border px-2 py-1 text-[11px] font-medium"
-                    style={{
-                      borderColor: "var(--border)",
-                      background: "var(--surface-soft)",
-                      color: "var(--text-soft)",
-                    }}
-                  >
-                    {assignment.user.name}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="truncate text-base font-semibold text-[var(--text-main)]">{task.title}</h3>
+                  <span className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${statusStyles[task.status]}`}>
+                    {task.status.replace("_", " ")}
                   </span>
-                ))}
-                {task.assignments.length > 3 ? (
-                  <span className="text-xs text-[var(--text-faint)]">+{task.assignments.length - 3} more</span>
+                  {canManageTask(task) && !task.checklistItems.length ? (
+                    <select
+                      value={task.status}
+                      disabled={savingId === task.id}
+                      onChange={(event) =>
+                        void handleTaskUpdate(task.id, {
+                          status: event.target.value as Task["status"],
+                        })
+                      }
+                      className="rounded-md border px-2 py-1 text-xs outline-none"
+                      style={{
+                        borderColor: "var(--border)",
+                        background: "var(--surface-soft)",
+                        color: "var(--text-main)",
+                      }}
+                    >
+                      {statuses.map((status) => (
+                        <option key={status} value={status}>
+                          {status.replace("_", " ")}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+                <p className="mt-1 text-sm text-[var(--text-soft)]">{task.description || "No description"}</p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {task.issues.some((issue) => Boolean(issue.managerResponse)) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIssuePanelTaskId(task.id);
+                      const latestRespondedIssue = task.issues.find((issue) => issue.managerResponse);
+                      if (latestRespondedIssue) {
+                        setHighlightedIssueId(latestRespondedIssue.id);
+                        setResponsePreviewIssue({
+                          taskTitle: task.title,
+                          issueTitle: latestRespondedIssue.title,
+                          response: latestRespondedIssue.managerResponse ?? "",
+                        });
+                      }
+                    }}
+                    className="rounded-md border px-2.5 py-1 text-xs font-semibold"
+                    style={{ borderColor: "var(--border)", color: "var(--accent-strong)" }}
+                  >
+                    Responses ({task.issues.filter((issue) => Boolean(issue.managerResponse)).length})
+                  </button>
                 ) : null}
+                {canEditTask ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openEditTask(task)}
+                      className="rounded-md border px-2.5 py-1 text-xs font-semibold"
+                      style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteTask(task.id)}
+                      disabled={savingId === task.id}
+                      className="rounded-md border px-2.5 py-1 text-xs font-semibold text-rose-600 disabled:opacity-60"
+                      style={{ borderColor: "var(--border)" }}
+                    >
+                      Delete
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => toggleIssuePanel(task.id)}
+                  className="rounded-md border px-2.5 py-1 text-xs font-semibold"
+                  style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
+                >
+                  {issuePanelTaskId === task.id ? "Minimize Issues" : `Issues (${task.issues.length})`}
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className={`rounded-md px-2.5 py-1 text-[11px] font-bold ${statusStyles[task.status]}`}>
-                {task.status.replace("_", " ")}
-              </span>
-              {canManageTask(task) && !task.checklistItems.length ? (
-                <select
-                  value={task.status}
-                  disabled={savingId === task.id}
-                  onChange={(event) =>
-                    void handleTaskUpdate(task.id, {
-                      status: event.target.value as Task["status"],
-                    })
-                  }
-                  className="rounded-md border px-2 py-1 text-xs outline-none"
-                  style={{
-                    borderColor: "var(--border)",
-                    background: "var(--surface-soft)",
-                    color: "var(--text-main)",
-                  }}
-                >
-                  {statuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status.replace("_", " ")}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-            </div>
-
-            <div className="min-w-0">
+            <div className="max-w-xl">
               <div className="mb-1 flex items-center justify-between">
                 <p className="text-xs font-semibold text-[var(--text-soft)]">Progress</p>
                 <span className="text-xs font-semibold text-[var(--text-main)]">{task.progress}%</span>
@@ -332,57 +366,23 @@ export function TaskList({
               ) : null}
             </div>
 
-            <div className="flex items-center gap-2">
-              {task.issues.some((issue) => Boolean(issue.managerResponse)) ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIssuePanelTaskId(task.id);
-                    const latestRespondedIssue = task.issues.find((issue) => issue.managerResponse);
-                    if (latestRespondedIssue) {
-                      setHighlightedIssueId(latestRespondedIssue.id);
-                      setResponsePreviewIssue({
-                        taskTitle: task.title,
-                        issueTitle: latestRespondedIssue.title,
-                        response: latestRespondedIssue.managerResponse ?? "",
-                      });
-                    }
+            <div className="flex flex-wrap items-center gap-2">
+              {task.assignments.slice(0, 3).map((assignment) => (
+                <span
+                  key={assignment.id}
+                  className="rounded-md border px-2 py-1 text-[11px] font-medium"
+                  style={{
+                    borderColor: "var(--border)",
+                    background: "var(--surface-soft)",
+                    color: "var(--text-soft)",
                   }}
-                  className="rounded-md border px-2.5 py-1 text-xs font-semibold"
-                  style={{ borderColor: "var(--border)", color: "var(--accent-strong)" }}
                 >
-                  Responses ({task.issues.filter((issue) => Boolean(issue.managerResponse)).length})
-                </button>
+                  {assignment.user.name}
+                </span>
+              ))}
+              {task.assignments.length > 3 ? (
+                <span className="text-xs text-[var(--text-faint)]">+{task.assignments.length - 3} more</span>
               ) : null}
-              {canEditTask ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openEditTask(task)}
-                    className="rounded-md border px-2.5 py-1 text-xs font-semibold"
-                    style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteTask(task.id)}
-                    disabled={savingId === task.id}
-                    className="rounded-md border px-2.5 py-1 text-xs font-semibold text-rose-600 disabled:opacity-60"
-                    style={{ borderColor: "var(--border)" }}
-                  >
-                    Delete
-                  </button>
-                </>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => toggleIssuePanel(task.id)}
-                className="rounded-md border px-2.5 py-1 text-xs font-semibold"
-                style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
-              >
-                {issuePanelTaskId === task.id ? "Minimize Issues" : `Issues (${task.issues.length})`}
-              </button>
             </div>
           </div>
 

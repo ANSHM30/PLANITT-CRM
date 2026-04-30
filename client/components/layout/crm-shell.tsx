@@ -236,7 +236,19 @@ export function CRMShell({ children, user }: CRMShellProps) {
                       markAllRead();
                     }}
                   >
-                    <span aria-hidden="true">🔔</span>
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M15 17h5l-1.4-1.4a2 2 0 0 1-.6-1.4V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+                      <path d="M9 17a3 3 0 0 0 6 0" />
+                    </svg>
                     <span>Alerts</span>
                     {unreadCount > 0 ? (
                       <span
@@ -249,7 +261,7 @@ export function CRMShell({ children, user }: CRMShellProps) {
                   </button>
                   {notificationsOpen ? (
                     <div
-                      className="absolute right-0 z-50 mt-2 w-[360px] rounded-lg border p-3"
+                      className="absolute right-0 z-50 mt-2 w-[min(360px,calc(100vw-2rem))] rounded-lg border p-3"
                       style={{
                         background: "var(--surface)",
                         borderColor: "var(--border)",
@@ -337,3 +349,4 @@ export function CRMShell({ children, user }: CRMShellProps) {
     </div>
   );
 }
+
