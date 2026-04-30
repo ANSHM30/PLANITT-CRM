@@ -15,8 +15,18 @@ const SocketContext = createContext<SocketContextValue>({
 });
 
 function getSocketUrl() {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
-  return apiUrl.replace(/\/api$/, "");
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/api\/?$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    const { protocol, hostname } = window.location;
+    const socketProtocol = protocol === "https:" ? "https:" : "http:";
+    return `${socketProtocol}//${hostname}:5000`;
+  }
+
+  return "http://localhost:5000";
 }
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {

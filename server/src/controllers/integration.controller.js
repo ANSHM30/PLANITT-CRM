@@ -22,6 +22,8 @@ function getEnvConfig() {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     redirectUri: process.env.GOOGLE_REDIRECT_URI,
     clientUrl: process.env.CLIENT_URL || "http://localhost:3000",
+    workspaceOwnerUserId: process.env.GOOGLE_WORKSPACE_OWNER_USER_ID || "",
+    driveRootFolderId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "",
   };
 }
 
@@ -147,6 +149,51 @@ async function getActiveGoogleConnection(userId) {
   }
 
   return connection;
+}
+
+async function getWorkspaceConnectionOwnerUserId(requiredService = "drive") {
+  const config = getEnvConfig();
+
+  if (config.workspaceOwnerUserId) {
+    return config.workspaceOwnerUserId;
+  }
+
+  if (!hasGoogleWorkspaceDelegate()) {
+    throw createError(
+      "Google integration model is unavailable in Prisma client. Run Prisma generate and restart server.",
+      500
+    );
+  }
+
+  const whereByService =
+    requiredService === "meet"
+      ? { connectedMeet: true }
+      : requiredService === "sheets"
+        ? { connectedSheets: true }
+        : { connectedDrive: true };
+
+  const connection = await prisma.googleWorkspaceConnection.findFirst({
+    where: {
+      accessToken: { not: null },
+      ...whereByService,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: { userId: true },
+  });
+
+  if (!connection?.userId) {
+    throw createError(
+      "Universal Google Workspace connection not found. Connect one admin account first.",
+      400
+    );
+  }
+
+  return connection.userId;
+}
+
+async function getUniversalGoogleConnection(requiredService = "drive") {
+  const ownerUserId = await getWorkspaceConnectionOwnerUserId(requiredService);
+  return getActiveGoogleConnection(ownerUserId);
 }
 
 async function googleApiRequest(url, accessToken, options = {}) {
@@ -339,18 +386,21 @@ export async function getGoogleWorkspaceStatus(req, res) {
     const config = getEnvConfig();
     const oauthConfigured = Boolean(config.clientId && config.clientSecret && config.redirectUri);
 
+    const ownerUserId = await getWorkspaceConnectionOwnerUserId("drive").catch(() => null);
     const [connection, crmSignals] = await Promise.all([
-      prisma.googleWorkspaceConnection.findUnique({
-        where: { userId: req.user.userId },
-        select: {
-          workspaceEmail: true,
-          grantedScopes: true,
-          connectedMeet: true,
-          connectedSheets: true,
-          connectedDrive: true,
-          updatedAt: true,
-        },
-      }),
+      ownerUserId
+        ? prisma.googleWorkspaceConnection.findUnique({
+            where: { userId: ownerUserId },
+            select: {
+              workspaceEmail: true,
+              grantedScopes: true,
+              connectedMeet: true,
+              connectedSheets: true,
+              connectedDrive: true,
+              updatedAt: true,
+            },
+          })
+        : Promise.resolve(null),
       getCRMWorkspaceSignals(),
     ]);
 
@@ -540,7 +590,7 @@ export async function disconnectGoogleWorkspace(req, res) {
 
 export async function createGoogleMeetSession(req, res) {
   try {
-    const connection = await getActiveGoogleConnection(req.user.userId);
+    const connection = await getUniversalGoogleConnection("meet");
     const project = await getProjectWorkspaceContext(req.body.projectId);
 
     const attendeeIds = Array.isArray(req.body.attendeeUserIds)
@@ -605,7 +655,7 @@ export async function createGoogleMeetSession(req, res) {
 
 export async function createGoogleProjectSheet(req, res) {
   try {
-    const connection = await getActiveGoogleConnection(req.user.userId);
+    const connection = await getUniversalGoogleConnection("sheets");
     const project = await getProjectWorkspaceContext(req.body.projectId);
 
     const spreadsheet = await googleApiRequest(GOOGLE_SHEETS_URL, connection.accessToken, {
@@ -658,7 +708,14 @@ export async function createGoogleProjectSheet(req, res) {
 
 export async function createGoogleDriveProjectFolder(req, res) {
   try {
-    const connection = await getActiveGoogleConnection(req.user.userId);
+    const connection = await getUniversalGoogleConnection("drive");
+    const config = getEnvConfig();
+    const rootFolderId = config.driveRootFolderId.trim();
+
+    if (!rootFolderId) {
+      throw createError("GOOGLE_DRIVE_ROOT_FOLDER_ID is required for universal Drive mode.", 400);
+    }
+
     const project = await getProjectWorkspaceContext(req.body.projectId);
 
     const folder = await googleApiRequest(
@@ -669,6 +726,7 @@ export async function createGoogleDriveProjectFolder(req, res) {
         body: JSON.stringify({
           name: `${project.name} CRM Workspace`,
           mimeType: "application/vnd.google-apps.folder",
+          parents: [rootFolderId],
         }),
       }
     );

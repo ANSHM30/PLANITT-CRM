@@ -3,9 +3,14 @@ import { Server } from "socket.io";
 let ioInstance = null;
 
 export function initSocket(server) {
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   ioInstance = new Server(server, {
     cors: {
-      origin: ["http://localhost:3000"],
+      origin: allowedOrigins.length ? allowedOrigins : true,
       credentials: true,
     },
   });

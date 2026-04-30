@@ -50,6 +50,10 @@ function canUseGoogleWorkspace(scope: DashboardSummary["scope"]) {
   return scope === "superadmin" || scope === "admin";
 }
 
+function workspaceAssetsStorageKey(userId: string) {
+  return `crm-workspace-assets:${userId}`;
+}
+
 function getInitials(name: string) {
   return name
     .split(" ")
@@ -1362,6 +1366,18 @@ function GoogleWorkspacePanel({
                 <p className="text-sm font-semibold text-[var(--text-main)]">Drive workspace created</p>
                 <p className="mt-1 text-sm text-[var(--text-soft)]">{driveResult.project.name}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href={
+                      driveResult.folderUrl ||
+                      `https://drive.google.com/drive/folders/${driveResult.folderId}`
+                    }
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl px-3 py-2 text-sm font-semibold text-white"
+                    style={{ background: "var(--accent-strong)" }}
+                  >
+                    Open Drive
+                  </a>
                   {driveResult.folderUrl ? (
                     <a
                       href={driveResult.folderUrl}
@@ -1477,6 +1493,47 @@ export default function DashboardPage() {
       setWorkspaceMessage("Google callback was incomplete. Please retry.");
     }
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const raw = window.localStorage.getItem(workspaceAssetsStorageKey(user.id));
+    if (!raw) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as {
+        meetResult?: GoogleMeetSessionResult | null;
+        sheetResult?: GoogleProjectSheetResult | null;
+        driveResult?: GoogleDriveFolderResult | null;
+      };
+      setMeetResult(parsed.meetResult ?? null);
+      setSheetResult(parsed.sheetResult ?? null);
+      setDriveResult(parsed.driveResult ?? null);
+    } catch {
+      setMeetResult(null);
+      setSheetResult(null);
+      setDriveResult(null);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    window.localStorage.setItem(
+      workspaceAssetsStorageKey(user.id),
+      JSON.stringify({
+        meetResult,
+        sheetResult,
+        driveResult,
+      })
+    );
+  }, [user, meetResult, sheetResult, driveResult]);
 
   useEffect(() => {
     async function loadSummary() {

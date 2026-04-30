@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiDelete, apiPost, apiPut } from "@/lib/api";
 import type { CRMUser, Task } from "@/types/crm";
 
@@ -9,6 +9,8 @@ type TaskListProps = {
   user: CRMUser;
   team?: CRMUser[];
   onUpdated?: () => Promise<void> | void;
+  initialIssueTaskId?: string | null;
+  initialIssueId?: string | null;
 };
 
 const statuses: Array<Task["status"]> = ["TODO", "IN_PROGRESS", "DONE"];
@@ -19,7 +21,14 @@ const statusStyles: Record<Task["status"], string> = {
   DONE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200",
 };
 
-export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
+export function TaskList({
+  tasks,
+  user,
+  team = [],
+  onUpdated,
+  initialIssueTaskId = null,
+  initialIssueId = null,
+}: TaskListProps) {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [issueDrafts, setIssueDrafts] = useState<
     Record<string, { title: string; description: string }>
@@ -30,6 +39,38 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
     Record<string, { title: string; description: string; userIds: string[]; checklistText: string }>
   >({});
   const [issuePanelTaskId, setIssuePanelTaskId] = useState<string | null>(null);
+  const [checklistPanelTaskId, setChecklistPanelTaskId] = useState<string | null>(null);
+  const [highlightedIssueId, setHighlightedIssueId] = useState<string | null>(null);
+  const [responsePreviewIssue, setResponsePreviewIssue] = useState<{
+    taskTitle: string;
+    issueTitle: string;
+    response: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!initialIssueTaskId) {
+      return;
+    }
+
+    const task = tasks.find((item) => item.id === initialIssueTaskId);
+    if (!task) {
+      return;
+    }
+
+    setIssuePanelTaskId(task.id);
+
+    if (initialIssueId && task.issues.some((issue) => issue.id === initialIssueId)) {
+      setHighlightedIssueId(initialIssueId);
+      const matched = task.issues.find((issue) => issue.id === initialIssueId);
+      if (matched?.managerResponse) {
+        setResponsePreviewIssue({
+          taskTitle: task.title,
+          issueTitle: matched.title,
+          response: matched.managerResponse,
+        });
+      }
+    }
+  }, [initialIssueTaskId, initialIssueId, tasks]);
 
   const canManageTask = (task: Task) =>
     user.role === "SUPERADMIN" ||
@@ -58,6 +99,14 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
         checklistText: task.checklistItems.map((item) => item.title).join("\n"),
       },
     }));
+  };
+
+  const toggleIssuePanel = (taskId: string) => {
+    setIssuePanelTaskId((current) => (current === taskId ? null : taskId));
+  };
+
+  const toggleChecklistPanel = (taskId: string) => {
+    setChecklistPanelTaskId((current) => (current === taskId ? null : taskId));
   };
 
   const handleTaskUpdate = async (
@@ -284,6 +333,27 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
             </div>
 
             <div className="flex items-center gap-2">
+              {task.issues.some((issue) => Boolean(issue.managerResponse)) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIssuePanelTaskId(task.id);
+                    const latestRespondedIssue = task.issues.find((issue) => issue.managerResponse);
+                    if (latestRespondedIssue) {
+                      setHighlightedIssueId(latestRespondedIssue.id);
+                      setResponsePreviewIssue({
+                        taskTitle: task.title,
+                        issueTitle: latestRespondedIssue.title,
+                        response: latestRespondedIssue.managerResponse ?? "",
+                      });
+                    }
+                  }}
+                  className="rounded-md border px-2.5 py-1 text-xs font-semibold"
+                  style={{ borderColor: "var(--border)", color: "var(--accent-strong)" }}
+                >
+                  Responses ({task.issues.filter((issue) => Boolean(issue.managerResponse)).length})
+                </button>
+              ) : null}
               {canEditTask ? (
                 <>
                   <button
@@ -307,11 +377,11 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
               ) : null}
               <button
                 type="button"
-                onClick={() => setIssuePanelTaskId((current) => (current === task.id ? null : task.id))}
+                onClick={() => toggleIssuePanel(task.id)}
                 className="rounded-md border px-2.5 py-1 text-xs font-semibold"
                 style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
               >
-                Issues ({task.issues.length})
+                {issuePanelTaskId === task.id ? "Minimize Issues" : `Issues (${task.issues.length})`}
               </button>
             </div>
           </div>
@@ -407,28 +477,40 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
 
           {task.checklistItems.length ? (
             <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--border)" }}>
-              <p className="text-xs font-semibold text-[var(--text-soft)]">Checklist</p>
-              <div className="mt-2 space-y-2">
-                {task.checklistItems.map((item) => (
-                  <label
-                    key={item.id}
-                    className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-                    style={{
-                      borderColor: "var(--border)",
-                      background: "var(--surface-soft)",
-                      color: "var(--text-main)",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={item.completed}
-                      disabled={savingId === task.id}
-                      onChange={() => void handleChecklistToggle(item.id, task.id)}
-                    />
-                    <span className={item.completed ? "line-through opacity-60" : ""}>{item.title}</span>
-                  </label>
-                ))}
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold text-[var(--text-soft)]">Checklist</p>
+                <button
+                  type="button"
+                  onClick={() => toggleChecklistPanel(task.id)}
+                  className="rounded-md border px-2.5 py-1 text-[11px] font-semibold"
+                  style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
+                >
+                  {checklistPanelTaskId === task.id ? "Minimize" : "Open"}
+                </button>
               </div>
+              {checklistPanelTaskId === task.id ? (
+                <div className="mt-2 space-y-2">
+                  {task.checklistItems.map((item) => (
+                    <label
+                      key={item.id}
+                      className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
+                      style={{
+                        borderColor: "var(--border)",
+                        background: "var(--surface-soft)",
+                        color: "var(--text-main)",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.completed}
+                        disabled={savingId === task.id}
+                        onChange={() => void handleChecklistToggle(item.id, task.id)}
+                      />
+                      <span className={item.completed ? "line-through opacity-60" : ""}>{item.title}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -439,7 +521,15 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
                 <div
                   key={issue.id}
                   className="rounded-lg border p-4"
-                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+                  style={{
+                    borderColor:
+                      highlightedIssueId === issue.id ? "var(--accent-strong)" : "var(--border)",
+                    background: "var(--surface-soft)",
+                    boxShadow:
+                      highlightedIssueId === issue.id
+                        ? "0 0 0 1px color-mix(in srgb, var(--accent-strong) 45%, transparent)"
+                        : undefined,
+                  }}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -455,6 +545,20 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
                     <div className="mt-3 rounded-xl p-3 text-sm" style={{ background: "var(--surface)" }}>
                       <p className="font-semibold text-[var(--text-main)]">Manager response</p>
                       <p className="mt-1 text-[var(--text-soft)]">{issue.managerResponse}</p>
+                      <button
+                        type="button"
+                        className="mt-3 rounded-md border px-3 py-1.5 text-xs font-semibold"
+                        style={{ borderColor: "var(--border)", color: "var(--accent-strong)" }}
+                        onClick={() =>
+                          setResponsePreviewIssue({
+                            taskTitle: task.title,
+                            issueTitle: issue.title,
+                            response: issue.managerResponse ?? "",
+                          })
+                        }
+                      >
+                        Open response
+                      </button>
                     </div>
                   ) : canRespondToIssues ? (
                     <div className="mt-3 space-y-3">
@@ -546,6 +650,31 @@ export function TaskList({ tasks, user, team = [], onUpdated }: TaskListProps) {
           ) : null}
         </article>
       ))}
+      {responsePreviewIssue ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4">
+          <div
+            className="w-full max-w-lg rounded-xl border p-5"
+            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">Issue response</p>
+            <h4 className="mt-2 text-lg font-semibold text-[var(--text-main)]">{responsePreviewIssue.issueTitle}</h4>
+            <p className="mt-1 text-xs text-[var(--text-soft)]">Task: {responsePreviewIssue.taskTitle}</p>
+            <div className="mt-4 rounded-lg border p-3 text-sm" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+              <p className="text-[var(--text-main)]">{responsePreviewIssue.response}</p>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setResponsePreviewIssue(null)}
+                className="rounded-md border px-4 py-2 text-sm font-semibold"
+                style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
+              >
+                Minimize
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

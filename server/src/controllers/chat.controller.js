@@ -869,6 +869,10 @@ export async function removeChatGroupMember(req, res) {
 
 export async function clearChatLocal(req, res) {
   try {
+    if (!canManageGroups(req.user)) {
+      return res.status(403).json({ error: "Only superadmin, admin, or manager can clear chat" });
+    }
+
     const channelType = String(req.params.type || "").toUpperCase();
     const channelId = String(req.params.id || "");
     if (!(await canAccessRoom(req.user, channelType, channelId))) {

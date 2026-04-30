@@ -8,6 +8,7 @@ import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost } from "@/lib/api";
 import { isAdminRole } from "@/lib/dashboard";
+import { useSearchParams } from "next/navigation";
 import type { CRMUser, Task } from "@/types/crm";
 
 function Surface({ children }: { children: ReactNode }) {
@@ -26,6 +27,7 @@ function Surface({ children }: { children: ReactNode }) {
 }
 
 export default function TasksPage() {
+  const searchParams = useSearchParams();
   const { user, loading: sessionLoading } = useSession();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [team, setTeam] = useState<CRMUser[]>([]);
@@ -46,6 +48,9 @@ export default function TasksPage() {
     background: "var(--surface-soft)",
     color: "var(--text-main)",
   } as const;
+
+  const initialIssueTaskId = searchParams.get("taskId");
+  const initialIssueId = searchParams.get("issueId");
 
   const loadTasks = async () => {
     const data = await apiGet<Task[]>("/tasks");
@@ -260,7 +265,14 @@ export default function TasksPage() {
 
             <div className="mt-6">
               {tasks.length ? (
-                <TaskList tasks={tasks} user={user} team={team} onUpdated={loadTasks} />
+                <TaskList
+                  tasks={tasks}
+                  user={user}
+                  team={team}
+                  onUpdated={loadTasks}
+                  initialIssueTaskId={initialIssueTaskId}
+                  initialIssueId={initialIssueId}
+                />
               ) : (
                 <div
                   className="rounded-3xl border border-dashed p-8 text-sm"

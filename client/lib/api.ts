@@ -1,12 +1,44 @@
 import { getToken } from "./auth";
 import { normalizeErrorMessage } from "./error-message";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
+const FALLBACK_API_ORIGIN = "http://localhost:5000";
+
+function resolveApiBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  if (typeof window !== "undefined") {
+    const { protocol, hostname } = window.location;
+    const apiProtocol = protocol === "https:" ? "https:" : "http:";
+    return `${apiProtocol}//${hostname}:5000/api`;
+  }
+
+  return `${FALLBACK_API_ORIGIN}/api`;
+}
+
+function buildApiUrl(path: string) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${resolveApiBaseUrl()}${normalizedPath}`;
+}
 
 type ApiError = Error & {
   status?: number;
 };
+
+async function request(input: string, init?: RequestInit) {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    const networkError = new Error(
+      `Unable to reach API at ${resolveApiBaseUrl()}. Check that backend server is running and NEXT_PUBLIC_API_URL is correct.`
+    ) as ApiError;
+    networkError.status = 0;
+    networkError.cause = error;
+    throw networkError;
+  }
+}
 
 async function parseResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -28,7 +60,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await request(buildApiUrl(path), {
     cache: "no-store",
     headers: getToken()
       ? {
@@ -41,7 +73,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await request(buildApiUrl(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -58,7 +90,7 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await request(buildApiUrl(path), {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -75,7 +107,7 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await request(buildApiUrl(path), {
     method: "DELETE",
     headers: getToken()
       ? {
@@ -92,7 +124,7 @@ export async function apiDelete<T>(path: string): Promise<T> {
 }
 
 export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await request(buildApiUrl(path), {
     method: "POST",
     headers: getToken()
       ? {

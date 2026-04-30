@@ -11,7 +11,7 @@ import {
 import { authMiddleware, authorizeRoles } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
-const googleWorkspaceRoles = ["SUPERADMIN", "ADMIN"];
+const googleWorkspaceRoles = ["SUPERADMIN", "ADMIN", "MANAGER"];
 
 router.get(
   "/google/status",

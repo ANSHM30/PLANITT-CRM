@@ -46,6 +46,31 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+function extractUrls(text: string) {
+  const matches = text.match(/https?:\/\/[^\s]+/g);
+  return matches ?? [];
+}
+
+function getUrlLabel(url: string) {
+  const normalized = url.toLowerCase();
+  if (normalized.includes("drive.google.com/drive/folders/")) {
+    return "Open Drive folder";
+  }
+  if (normalized.includes("drive.google.com/file/")) {
+    return "Open file";
+  }
+  if (normalized.includes("docs.google.com/spreadsheets/")) {
+    return "Open Sheet";
+  }
+  if (normalized.includes("meet.google.com")) {
+    return "Open Meet";
+  }
+  if (normalized.includes("calendar.google.com")) {
+    return "Open Calendar";
+  }
+  return "Open link";
+}
+
 export default function ChatPage() {
   const { user, loading: sessionLoading } = useSession();
   const { socket, connected } = useSocket();
@@ -76,6 +101,7 @@ export default function ChatPage() {
   const allRooms = useMemo(() => [...rooms.departments, ...rooms.projects, ...rooms.groups], [rooms]);
   const selectedRoom = allRooms.find((room) => roomKey(room) === selectedKey) ?? null;
   const canManageGroups = user ? ["SUPERADMIN", "ADMIN", "MANAGER"].includes(user.role) : false;
+  const canClearChat = user ? ["SUPERADMIN", "ADMIN", "MANAGER"].includes(user.role) : false;
 
   useEffect(() => {
     async function loadRooms() {
@@ -599,14 +625,16 @@ export default function ChatPage() {
                   style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text-main)" }}
                 />
                 <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void clearCurrentChatLocal()}
-                    className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
-                    style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
-                  >
-                    Clear chat (local)
-                  </button>
+                  {canClearChat ? (
+                    <button
+                      type="button"
+                      onClick={() => void clearCurrentChatLocal()}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                      style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                    >
+                      Clear chat (local)
+                    </button>
+                  ) : null}
                   {selectedRoom.type === "GROUP" && canManageGroups ? (
                     <button
                       type="button"
@@ -669,14 +697,15 @@ export default function ChatPage() {
                         </button>
                         {openMenuId === message.id ? (
                           <div
-                            className="absolute right-2 top-9 z-20 min-w-40 rounded-xl border bg-black p-1 shadow-lg"
-                            style={{ borderColor: "var(--border)" }}
+                            className="absolute right-2 top-9 z-20 min-w-40 rounded-xl border p-1 shadow-lg"
+                            style={{ borderColor: "var(--border)", background: "var(--surface)" }}
                             onClick={(event) => event.stopPropagation()}
                           >
                             {!message.isDeleted ? (
                               <button
                                 type="button"
-                                className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]"
+                                className="block w-full rounded-lg px-3 py-2 text-left text-sm"
+                                style={{ color: "var(--text-main)" }}
                                 onClick={() => {
                                   setReplyTo(message);
                                   setOpenMenuId(null);
@@ -688,7 +717,8 @@ export default function ChatPage() {
                             {canDelete && !message.isDeleted ? (
                               <button
                                 type="button"
-                                className="block w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-soft)]"
+                                className="block w-full rounded-lg px-3 py-2 text-left text-sm"
+                                style={{ color: "var(--text-main)" }}
                                 onClick={() => {
                                   void deleteMessageWithMode(message.id, "me");
                                   setOpenMenuId(null);
@@ -700,7 +730,8 @@ export default function ChatPage() {
                             {canDelete && !message.isDeleted ? (
                               <button
                                 type="button"
-                                className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                className="block w-full rounded-lg px-3 py-2 text-left text-sm"
+                                style={{ color: "var(--danger)" }}
                                 onClick={() => {
                                   void deleteMessage(message.id);
                                   setOpenMenuId(null);
@@ -728,6 +759,22 @@ export default function ChatPage() {
                         <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text-main)]">
                           {message.content}
                         </p>
+                        {message.messageType === "TEXT" ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {extractUrls(message.content).map((url) => (
+                              <a
+                                key={`${message.id}-${url}`}
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-xl border px-3 py-1.5 text-xs font-semibold"
+                                style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-main)" }}
+                              >
+                                {getUrlLabel(url)}
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
                         {message.attachmentUrl && !message.isDeleted ? (
                           <div className="mt-3">
                             {message.messageType === "PDF" ? (
