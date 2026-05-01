@@ -7,6 +7,7 @@ import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost, apiPut } from "@/lib/api";
 import type { CRMUser, Department, UserRole } from "@/types/crm";
+type PaginatedResponse<T> = { items: T[]; total: number; hasMore: boolean; nextOffset: number };
 
 const baseRoles: UserRole[] = ["EMPLOYEE", "INTERN", "MANAGER", "ADMIN"];
 
@@ -30,6 +31,7 @@ export default function EmployeesPage() {
     allowedRoles: ["SUPERADMIN", "ADMIN", "MANAGER"],
   });
   const [users, setUsers] = useState<CRMUser[]>([]);
+  const [allUsers, setAllUsers] = useState<CRMUser[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState("");
@@ -44,6 +46,9 @@ export default function EmployeesPage() {
   });
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
+  const [hasMoreUsers, setHasMoreUsers] = useState(false);
+  const [nextUserOffset, setNextUserOffset] = useState(0);
+  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
   const [updatingId, setUpdatingId] = useState("");
   const [emailDrafts, setEmailDrafts] = useState<Record<string, string>>({});
   const [emailUpdatingId, setEmailUpdatingId] = useState("");
@@ -56,15 +61,20 @@ export default function EmployeesPage() {
     color: "var(--text-main)",
   } as const;
 
-  const loadTeam = async () => {
-    const [members, departmentData] = await Promise.all([
+  const loadTeam = async (append = false) => {
+    const offset = append ? nextUserOffset : 0;
+    const [membersPage, allMembers, departmentData] = await Promise.all([
+      apiGet<PaginatedResponse<CRMUser>>(`/users?paginate=true&limit=25&offset=${offset}`),
       apiGet<CRMUser[]>("/users"),
       apiGet<Department[]>("/departments"),
     ]);
-    setUsers(members);
+    setUsers((current) => (append ? [...current, ...membersPage.items] : membersPage.items));
+    setAllUsers(allMembers);
+    setHasMoreUsers(membersPage.hasMore);
+    setNextUserOffset(membersPage.nextOffset);
     setDepartments(departmentData);
     setEmailDrafts(
-      members.reduce<Record<string, string>>((acc, member) => {
+      allMembers.reduce<Record<string, string>>((acc, member) => {
         acc[member.id] = member.email;
         return acc;
       }, {})
@@ -111,7 +121,7 @@ export default function EmployeesPage() {
         managerId: "",
       });
       setNotice("Team member created successfully.");
-      await loadTeam();
+      await loadTeam(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create team member");
     } finally {
@@ -134,7 +144,7 @@ export default function EmployeesPage() {
         role: field === "role" ? value : member.role,
         designation: member.designation ?? "",
       });
-      await loadTeam();
+      await loadTeam(false);
       setNotice("Assignment updated successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update assignment");
@@ -156,7 +166,7 @@ export default function EmployeesPage() {
       await apiPut(`/users/${member.id}/profile`, {
         email: nextEmail,
       });
-      await loadTeam();
+      await loadTeam(false);
       setNotice("Email updated successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update email");
@@ -165,7 +175,7 @@ export default function EmployeesPage() {
     }
   };
 
-  const managers = users.filter((member) =>
+  const managers = allUsers.filter((member) =>
     ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role)
   );
 
@@ -496,6 +506,22 @@ export default function EmployeesPage() {
             </div>
 
             {dataLoading ? <p className="mt-4 text-sm text-[var(--text-soft)]">Loading employees...</p> : null}
+            {hasMoreUsers ? (
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  disabled={loadingMoreUsers}
+                  onClick={() => {
+                    setLoadingMoreUsers(true);
+                    void loadTeam(true).finally(() => setLoadingMoreUsers(false));
+                  }}
+                  className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                >
+                  {loadingMoreUsers ? "Loading..." : "Load more members"}
+                </button>
+              </div>
+            ) : null}
           </Surface>
         </div>
       </div>

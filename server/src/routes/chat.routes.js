@@ -1,15 +1,15 @@
 import express from "express";
-import path from "path";
-import fs from "fs";
 import multer from "multer";
-import { fileURLToPath } from "url";
 import {
   addChatGroupMembers,
   clearChatLocal,
   createChatGroup,
   createChatMessage,
+  deleteChatMedia,
+  deleteChatMediaBulk,
   deleteChatGroup,
   deleteChatMessage,
+  getChatMedia,
   getChatGroupById,
   getChatGroupMembers,
   getChatMessages,
@@ -22,22 +22,9 @@ import {
 import { authMiddleware, authorizeRoles } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const uploadsDir = path.resolve(__dirname, "../../uploads/chat");
-
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadsDir),
-    filename: (_req, file, cb) => {
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-      cb(null, `${Date.now()}-${safeName}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
   },
@@ -69,8 +56,11 @@ router.delete(
   removeChatGroupMember
 );
 router.get("/messages", authMiddleware, getChatMessages);
+router.get("/media", authMiddleware, getChatMedia);
+router.post("/media/delete-bulk", authMiddleware, deleteChatMediaBulk);
 router.post("/messages", authMiddleware, createChatMessage);
 router.delete("/messages/:id", authMiddleware, deleteChatMessage);
+router.delete("/media/:id", authMiddleware, deleteChatMedia);
 router.post("/clear/:type/:id", authMiddleware, clearChatLocal);
 router.post("/read", authMiddleware, markChatRoomRead);
 router.post("/attachments", authMiddleware, upload.single("file"), uploadChatAttachment);

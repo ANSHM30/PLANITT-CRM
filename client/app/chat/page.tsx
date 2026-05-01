@@ -7,14 +7,34 @@ import { StatePanel } from "@/components/shared/state-panel";
 import { useSession } from "@/hooks/use-session";
 import { apiDelete, apiGet, apiPost, apiPostForm, apiPut } from "@/lib/api";
 import { normalizeErrorMessage } from "@/lib/error-message";
-import type { CRMUser, ChatAttachmentUploadResponse, ChatGroup, ChatGroupMember, ChatMessage, ChatRoom, ChatRoomsResponse } from "@/types/crm";
+import type {
+  CRMUser,
+  ChatAttachmentUploadResponse,
+  ChatGroup,
+  ChatGroupMember,
+  ChatMediaTypeFilter,
+  ChatMessage,
+  ChatRoom,
+  ChatRoomsResponse,
+} from "@/types/crm";
+
+type ChatMessagesPage = {
+  messages: ChatMessage[];
+  hasMore: boolean;
+  nextBefore: string | null;
+};
 
 function roomKey(room: ChatRoom) {
   return `${room.type}:${room.id}`;
 }
 
 function messageRoomKey(message: ChatMessage) {
-  const id = message.channelType === "DEPARTMENT" ? message.departmentId : message.projectId;
+  const id =
+    message.channelType === "DEPARTMENT"
+      ? message.departmentId
+      : message.channelType === "PROJECT"
+        ? message.projectId
+        : message.groupId;
   return `${message.channelType}:${id}`;
 }
 
@@ -80,6 +100,9 @@ export default function ChatPage() {
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [nextBeforeCursor, setNextBeforeCursor] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -95,6 +118,13 @@ export default function ChatPage() {
   const [activeGroup, setActiveGroup] = useState<ChatGroup | null>(null);
   const [activeGroupMembers, setActiveGroupMembers] = useState<ChatGroupMember[]>([]);
   const [groupSaving, setGroupSaving] = useState(false);
+  const [showMediaPanel, setShowMediaPanel] = useState(false);
+  const [mediaFilter, setMediaFilter] = useState<ChatMediaTypeFilter>("ALL");
+  const [mediaItems, setMediaItems] = useState<ChatMessage[]>([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaDeletingId, setMediaDeletingId] = useState<string | null>(null);
+  const [selectedMediaIds, setSelectedMediaIds] = useState<string[]>([]);
+  const [bulkDeletingMedia, setBulkDeletingMedia] = useState(false);
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -144,6 +174,8 @@ export default function ChatPage() {
       if (!selectedRoom) {
         setMessages([]);
         setReplyTo(null);
+        setHasMoreMessages(false);
+        setNextBeforeCursor(null);
         return;
       }
 
@@ -154,8 +186,11 @@ export default function ChatPage() {
           type: selectedRoom.type,
           id: selectedRoom.id,
         });
-        const data = await apiGet<ChatMessage[]>(`/chat/messages?${params.toString()}`);
-        setMessages(data);
+        params.set("limit", "40");
+        const data = await apiGet<ChatMessagesPage>(`/chat/messages?${params.toString()}`);
+        setMessages(data.messages);
+        setHasMoreMessages(data.hasMore);
+        setNextBeforeCursor(data.nextBefore);
         await apiPost<{ success: boolean }>("/chat/read", {
           channelType: selectedRoom.type,
           channelId: selectedRoom.id,
@@ -181,6 +216,29 @@ export default function ChatPage() {
 
     void loadMessages();
   }, [selectedRoom?.id, selectedRoom?.type]);
+
+  const loadOlderMessages = async () => {
+    if (!selectedRoom || !nextBeforeCursor || loadingOlderMessages) {
+      return;
+    }
+    try {
+      setLoadingOlderMessages(true);
+      const params = new URLSearchParams({
+        type: selectedRoom.type,
+        id: selectedRoom.id,
+        limit: "40",
+        before: nextBeforeCursor,
+      });
+      const data = await apiGet<ChatMessagesPage>(`/chat/messages?${params.toString()}`);
+      setMessages((current) => [...data.messages, ...current]);
+      setHasMoreMessages(data.hasMore);
+      setNextBeforeCursor(data.nextBefore);
+    } catch (err) {
+      setError(normalizeErrorMessage(err, "Failed to load older messages"));
+    } finally {
+      setLoadingOlderMessages(false);
+    }
+  };
 
   useEffect(() => {
     if (!socket || !selectedRoom) {
@@ -435,6 +493,112 @@ export default function ChatPage() {
     }
   };
 
+  const loadMedia = async (filter: ChatMediaTypeFilter) => {
+    if (!selectedRoom) {
+      return;
+    }
+    try {
+      setMediaLoading(true);
+      const params = new URLSearchParams({
+        type: selectedRoom.type,
+        id: selectedRoom.id,
+        mediaType: filter,
+      });
+      const data = await apiGet<ChatMessage[]>(`/chat/media?${params.toString()}`);
+      setMediaItems(data);
+    } catch (err) {
+      setError(normalizeErrorMessage(err, "Failed to load media"));
+    } finally {
+      setMediaLoading(false);
+    }
+  };
+
+  const openMediaPanel = async () => {
+    setShowMediaPanel(true);
+    setSelectedMediaIds([]);
+    await loadMedia(mediaFilter);
+  };
+
+  const changeMediaFilter = async (filter: ChatMediaTypeFilter) => {
+    setMediaFilter(filter);
+    await loadMedia(filter);
+  };
+
+  const deleteMedia = async (messageId: string) => {
+    try {
+      setMediaDeletingId(messageId);
+      await apiDelete<{ success: boolean }>(`/chat/media/${messageId}`);
+      setMediaItems((current) => current.filter((item) => item.id !== messageId));
+      setSelectedMediaIds((current) => current.filter((id) => id !== messageId));
+      setMessages((current) =>
+        current.map((item) =>
+          item.id === messageId
+            ? {
+                ...item,
+                isDeleted: true,
+                deletedAt: new Date().toISOString(),
+                content: "This media was deleted",
+                messageType: "TEXT",
+                attachmentUrl: null,
+                attachmentMimeType: null,
+                attachmentFileName: null,
+              }
+            : item
+        )
+      );
+    } catch (err) {
+      setError(normalizeErrorMessage(err, "Failed to delete media"));
+    } finally {
+      setMediaDeletingId(null);
+    }
+  };
+
+  const toggleMediaSelection = (messageId: string) => {
+    setSelectedMediaIds((current) =>
+      current.includes(messageId) ? current.filter((id) => id !== messageId) : [...current, messageId]
+    );
+  };
+
+  const deleteSelectedMedia = async () => {
+    if (!selectedMediaIds.length) {
+      return;
+    }
+    try {
+      setBulkDeletingMedia(true);
+      const payload = await apiPost<{ deletedCount: number; results: Array<{ id: string; success: boolean }> }>(
+        "/chat/media/delete-bulk",
+        { messageIds: selectedMediaIds }
+      );
+      const deletedIds = payload.results.filter((item) => item.success).map((item) => item.id);
+      if (!deletedIds.length) {
+        return;
+      }
+      const deletedSet = new Set(deletedIds);
+      setMediaItems((current) => current.filter((item) => !deletedSet.has(item.id)));
+      setSelectedMediaIds((current) => current.filter((id) => !deletedSet.has(id)));
+      setMessages((current) =>
+        current.map((item) =>
+          deletedSet.has(item.id)
+            ? {
+                ...item,
+                isDeleted: true,
+                deletedAt: new Date().toISOString(),
+                content: "This media was deleted",
+                messageType: "TEXT",
+                attachmentUrl: null,
+                attachmentMimeType: null,
+                attachmentFileName: null,
+              }
+            : item
+        )
+      );
+    } catch (err) {
+      setError(normalizeErrorMessage(err, "Failed to bulk delete media"));
+    } finally {
+      setBulkDeletingMedia(false);
+    }
+  };
+
   if (sessionLoading || !user) {
     return <StatePanel title="Loading chat" description="Preparing your CRM conversations." />;
   }
@@ -625,6 +789,14 @@ export default function ChatPage() {
                   style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text-main)" }}
                 />
                 <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void openMediaPanel()}
+                    className="rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                    style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                  >
+                    Media
+                  </button>
                   {canClearChat ? (
                     <button
                       type="button"
@@ -649,6 +821,19 @@ export default function ChatPage() {
               </div>
 
               <div className="flex-1 space-y-3 overflow-y-auto p-5">
+                {!messagesLoading && hasMoreMessages ? (
+                  <div className="mb-2 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() => void loadOlderMessages()}
+                      disabled={loadingOlderMessages}
+                      className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
+                      style={{ borderColor: "var(--border)", color: "var(--text-main)", background: "var(--surface-soft)" }}
+                    >
+                      {loadingOlderMessages ? "Loading..." : "Load older messages"}
+                    </button>
+                  </div>
+                ) : null}
                 {messagesLoading ? (
                   <StatePanel title="Loading messages" description="Fetching the latest conversation." />
                 ) : null}
@@ -965,6 +1150,112 @@ export default function ChatPage() {
             <button type="button" onClick={() => void deleteGroup()} className="mt-6 rounded-lg border px-3 py-2 text-sm text-red-600" style={{ borderColor: "color-mix(in srgb, red 30%, var(--border))" }}>
               Delete group
             </button>
+          </div>
+        </div>
+      ) : null}
+      {showMediaPanel && selectedRoom ? (
+        <div className="fixed inset-0 z-40 flex justify-end bg-black/30">
+          <div className="h-full w-full max-w-md overflow-y-auto border-l p-4" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-[var(--text-main)]">Media</h3>
+              <button type="button" onClick={() => setShowMediaPanel(false)} className="text-sm">Close</button>
+            </div>
+            <p className="mt-1 text-sm text-[var(--text-soft)]">{selectedRoom.name}</p>
+            <div className="mt-3 flex gap-2">
+              {(["ALL", "IMAGE", "PDF"] as ChatMediaTypeFilter[]).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => void changeMediaFilter(filter)}
+                  className="rounded-full border px-3 py-1 text-xs font-semibold"
+                  style={{
+                    borderColor: mediaFilter === filter ? "var(--accent)" : "var(--border)",
+                    color: mediaFilter === filter ? "var(--accent)" : "var(--text-main)",
+                  }}
+                >
+                  {filter === "ALL" ? "All" : filter === "IMAGE" ? "Images" : "PDFs"}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-[var(--text-soft)]">{selectedMediaIds.length} selected</p>
+              <button
+                type="button"
+                onClick={() => void deleteSelectedMedia()}
+                disabled={!selectedMediaIds.length || bulkDeletingMedia}
+                className="rounded-lg border px-3 py-1 text-xs font-semibold text-red-600 disabled:opacity-60"
+                style={{ borderColor: "color-mix(in srgb, red 30%, var(--border))" }}
+              >
+                {bulkDeletingMedia ? "Deleting..." : "Delete selected"}
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {mediaLoading ? <p className="text-sm text-[var(--text-soft)]">Loading media...</p> : null}
+              {!mediaLoading && !mediaItems.length ? (
+                <p className="rounded-xl border px-3 py-2 text-sm text-[var(--text-soft)]" style={{ borderColor: "var(--border)" }}>
+                  No media found in this chat.
+                </p>
+              ) : null}
+              {mediaItems.map((item) => {
+                const canDeleteMedia = item.author.id === user.id || user.role === "ADMIN" || user.role === "SUPERADMIN";
+                return (
+                  <div key={item.id} className="rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
+                    <label className="mb-2 flex cursor-pointer items-center gap-2 text-xs text-[var(--text-soft)]">
+                      <input
+                        type="checkbox"
+                        checked={selectedMediaIds.includes(item.id)}
+                        onChange={() => toggleMediaSelection(item.id)}
+                      />
+                      Select
+                    </label>
+                    <div className="mb-2 flex items-center justify-between text-xs text-[var(--text-soft)]">
+                      <span>{item.author.name}</span>
+                      <span>{formatTime(item.createdAt)}</span>
+                    </div>
+                    {item.messageType === "PDF" ? (
+                      <a
+                        href={resolveAttachmentUrl(item.attachmentUrl)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex rounded-lg border px-3 py-2 text-sm font-medium text-[var(--text-main)]"
+                        style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+                      >
+                        {item.attachmentFileName || "Open PDF"}
+                      </a>
+                    ) : (
+                      <img
+                        src={resolveAttachmentUrl(item.attachmentUrl)}
+                        alt={item.attachmentFileName || "Attachment"}
+                        className="max-h-52 w-full rounded-lg border object-cover"
+                        style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+                      />
+                    )}
+                    <div className="mt-2 flex gap-2">
+                      <a
+                        href={resolveAttachmentUrl(item.attachmentUrl)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg border px-2 py-1 text-xs font-semibold"
+                        style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                      >
+                        Open
+                      </a>
+                      {canDeleteMedia ? (
+                        <button
+                          type="button"
+                          onClick={() => void deleteMedia(item.id)}
+                          disabled={mediaDeletingId === item.id}
+                          className="rounded-lg border px-2 py-1 text-xs font-semibold text-red-600 disabled:opacity-60"
+                          style={{ borderColor: "color-mix(in srgb, red 30%, var(--border))" }}
+                        >
+                          {mediaDeletingId === item.id ? "Deleting..." : "Delete"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       ) : null}

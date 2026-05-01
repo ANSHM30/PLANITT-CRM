@@ -3,7 +3,13 @@ import { emitCRMEvent } from "../socket.js";
 
 export async function getDepartments(_req, res) {
   try {
-    const departments = await prisma.department.findMany({
+    const paginate = String(_req.query.paginate || "").toLowerCase() === "true";
+    const limitRaw = Number(_req.query.limit);
+    const offsetRaw = Number(_req.query.offset);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 25;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(Math.trunc(offsetRaw), 0) : 0;
+
+    const query = {
       orderBy: { name: "asc" },
       include: {
         head: {
@@ -20,9 +26,28 @@ export async function getDepartments(_req, res) {
           },
         },
       },
-    });
+    };
 
-    return res.json(departments);
+    if (!paginate) {
+      const departments = await prisma.department.findMany(query);
+      return res.json(departments);
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.department.findMany({
+        ...query,
+        skip: offset,
+        take: limit,
+      }),
+      prisma.department.count(),
+    ]);
+
+    return res.json({
+      items,
+      total,
+      hasMore: offset + items.length < total,
+      nextOffset: offset + items.length,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

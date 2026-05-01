@@ -7,6 +7,7 @@ import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
 import type { CRMUser, Department, Project, Task } from "@/types/crm";
+type PaginatedResponse<T> = { items: T[]; total: number; hasMore: boolean; nextOffset: number };
 
 const columns: Array<{ key: Task["status"]; label: string; tone: string }> = [
   { key: "TODO", label: "Pending", tone: "bg-rose-500" },
@@ -39,6 +40,9 @@ export default function ProjectsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [loading, setLoading] = useState(true);
+  const [hasMoreProjects, setHasMoreProjects] = useState(false);
+  const [nextProjectOffset, setNextProjectOffset] = useState(0);
+  const [loadingMoreProjects, setLoadingMoreProjects] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
@@ -69,19 +73,22 @@ export default function ProjectsPage() {
     color: "var(--text-main)",
   } as const;
 
-  const loadProjects = async () => {
-    const [projectData, departmentData, userData] = await Promise.all([
-      apiGet<Project[]>("/projects"),
+  const loadProjects = async (append = false) => {
+    const offset = append ? nextProjectOffset : 0;
+    const [projectPage, departmentData, userData] = await Promise.all([
+      apiGet<PaginatedResponse<Project>>(`/projects?paginate=true&limit=20&offset=${offset}`),
       apiGet<Department[]>("/departments"),
       apiGet<CRMUser[]>("/users"),
     ]);
 
-    setProjects(projectData);
+    setProjects((current) => (append ? [...current, ...projectPage.items] : projectPage.items));
+    setHasMoreProjects(projectPage.hasMore);
+    setNextProjectOffset(projectPage.nextOffset);
     setDepartments(departmentData);
     setTeam(userData);
 
-    if (!selectedProjectId && projectData[0]) {
-      setSelectedProjectId(projectData[0].id);
+    if (!selectedProjectId && projectPage.items[0]) {
+      setSelectedProjectId(projectPage.items[0].id);
     }
   };
 
@@ -93,7 +100,7 @@ export default function ProjectsPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        await loadProjects();
+        await loadProjects(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load projects");
       } finally {
@@ -159,7 +166,7 @@ export default function ProjectsPage() {
       });
       setSelectedProjectId(project.id);
       setNotice("Project created successfully.");
-      await loadProjects();
+      await loadProjects(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
     } finally {
@@ -194,7 +201,7 @@ export default function ProjectsPage() {
       });
       setNotice("Task added to project.");
       await loadProjectTasks(selectedProjectId);
-      await loadProjects();
+      await loadProjects(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project task");
     } finally {
@@ -208,7 +215,7 @@ export default function ProjectsPage() {
       if (selectedProjectId) {
         await loadProjectTasks(selectedProjectId);
       }
-      await loadProjects();
+      await loadProjects(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to move task");
     }
@@ -345,6 +352,20 @@ export default function ProjectsPage() {
                   </button>
                 );
               })}
+              {hasMoreProjects ? (
+                <button
+                  type="button"
+                  disabled={loadingMoreProjects}
+                  onClick={() => {
+                    setLoadingMoreProjects(true);
+                    void loadProjects(true).finally(() => setLoadingMoreProjects(false));
+                  }}
+                  className="w-full rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                >
+                  {loadingMoreProjects ? "Loading..." : "Load more projects"}
+                </button>
+              ) : null}
             </div>
           </Surface>
 

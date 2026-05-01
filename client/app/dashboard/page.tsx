@@ -20,6 +20,7 @@ import type {
 } from "@/types/crm";
 
 type WorkspaceActionLoading = "" | "meet" | "sheets" | "drive";
+const TEAM_ANALYTICS_PRELOAD_LIMIT = 8;
 
 function Surface({
   children,
@@ -1592,7 +1593,8 @@ export default function DashboardPage() {
 
       try {
         setTeamLoading(true);
-        const members = await apiGet<CRMUser[]>("/users");
+        const membersPage = await apiGet<{ items: CRMUser[] }>("/users?paginate=true&limit=120&offset=0");
+        const members = membersPage.items;
         const visibleMembers =
           summary?.scope === "superadmin"
             ? members.filter((member) =>
@@ -1602,7 +1604,7 @@ export default function DashboardPage() {
         setTeamMembers(visibleMembers);
         setSelectedMemberId((current) => current || visibleMembers[0]?.id || "");
         const analyticsList = await Promise.all(
-          visibleMembers.map(async (member) =>
+          visibleMembers.slice(0, TEAM_ANALYTICS_PRELOAD_LIMIT).map(async (member) =>
             apiGet<UserAnalyticsSummary>(`/users/${member.id}/analytics`)
           )
         );
@@ -1651,11 +1653,13 @@ export default function DashboardPage() {
 
       try {
         setWorkspaceLoading(true);
-        const [statusData, projectData, userData] = await Promise.all([
+        const [statusData, projectPage, userPage] = await Promise.all([
           apiGet<GoogleWorkspaceStatus>("/integrations/google/status"),
-          apiGet<Project[]>("/projects"),
-          apiGet<CRMUser[]>("/users"),
+          apiGet<{ items: Project[] }>("/projects?paginate=true&limit=100&offset=0"),
+          apiGet<{ items: CRMUser[] }>("/users?paginate=true&limit=120&offset=0"),
         ]);
+        const projectData = projectPage.items;
+        const userData = userPage.items;
         setWorkspaceStatus(statusData);
         setWorkspaceProjects(projectData);
         setWorkspaceUsers(userData);
@@ -1687,7 +1691,8 @@ export default function DashboardPage() {
       setSummary(freshSummary);
 
       if (freshSummary.scope === "admin" || freshSummary.scope === "superadmin") {
-        const members = await apiGet<CRMUser[]>("/users");
+        const membersPage = await apiGet<{ items: CRMUser[] }>("/users?paginate=true&limit=120&offset=0");
+        const members = membersPage.items;
         const visibleMembers =
           freshSummary.scope === "superadmin"
             ? members.filter((member) =>
@@ -1696,7 +1701,7 @@ export default function DashboardPage() {
             : members.filter((member) => member.role === "EMPLOYEE" || member.role === "INTERN");
         setTeamMembers(visibleMembers);
         const analyticsList = await Promise.all(
-          visibleMembers.map(async (member) =>
+          visibleMembers.slice(0, TEAM_ANALYTICS_PRELOAD_LIMIT).map(async (member) =>
             apiGet<UserAnalyticsSummary>(`/users/${member.id}/analytics`)
           )
         );
@@ -1716,11 +1721,13 @@ export default function DashboardPage() {
 
       if (canUseGoogleWorkspace(freshSummary.scope)) {
         try {
-          const [workspace, projects, users] = await Promise.all([
+          const [workspace, projectPage, userPage] = await Promise.all([
             apiGet<GoogleWorkspaceStatus>("/integrations/google/status"),
-            apiGet<Project[]>("/projects"),
-            apiGet<CRMUser[]>("/users"),
+            apiGet<{ items: Project[] }>("/projects?paginate=true&limit=100&offset=0"),
+            apiGet<{ items: CRMUser[] }>("/users?paginate=true&limit=120&offset=0"),
           ]);
+          const projects = projectPage.items;
+          const users = userPage.items;
           setWorkspaceStatus(workspace);
           setWorkspaceProjects(projects);
           setWorkspaceUsers(users);

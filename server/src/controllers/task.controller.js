@@ -191,13 +191,38 @@ export async function getTasks(_req, res) {
       ...projectFilter,
     };
 
-    const tasks = await prisma.task.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: getTaskInclude(),
-    });
+    const paginate = String(_req.query.paginate || "").toLowerCase() === "true";
+    const limitRaw = Number(_req.query.limit);
+    const offsetRaw = Number(_req.query.offset);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 30;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(Math.trunc(offsetRaw), 0) : 0;
 
-    return res.json(tasks);
+    if (!paginate) {
+      const tasks = await prisma.task.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: getTaskInclude(),
+      });
+      return res.json(tasks);
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.task.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: offset,
+        take: limit,
+        include: getTaskInclude(),
+      }),
+      prisma.task.count({ where }),
+    ]);
+
+    return res.json({
+      items,
+      total,
+      hasMore: offset + items.length < total,
+      nextOffset: offset + items.length,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

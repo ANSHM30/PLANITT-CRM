@@ -167,13 +167,39 @@ export async function getUsers(_req, res) {
           }
         : {};
 
-    const users = await prisma.user.findMany({
-      where: isSuperView ? {} : where,
-      orderBy: { createdAt: "desc" },
-      select: toPublicUserSelect(),
-    });
+    const paginate = String(_req.query.paginate || "").toLowerCase() === "true";
+    const limitRaw = Number(_req.query.limit);
+    const offsetRaw = Number(_req.query.offset);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 25;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(Math.trunc(offsetRaw), 0) : 0;
 
-    return res.json(users);
+    const finalWhere = isSuperView ? {} : where;
+    if (!paginate) {
+      const users = await prisma.user.findMany({
+        where: finalWhere,
+        orderBy: { createdAt: "desc" },
+        select: toPublicUserSelect(),
+      });
+      return res.json(users);
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.user.findMany({
+        where: finalWhere,
+        orderBy: { createdAt: "desc" },
+        skip: offset,
+        take: limit,
+        select: toPublicUserSelect(),
+      }),
+      prisma.user.count({ where: finalWhere }),
+    ]);
+
+    return res.json({
+      items,
+      total,
+      hasMore: offset + items.length < total,
+      nextOffset: offset + items.length,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

@@ -44,7 +44,13 @@ export async function getProjects(req, res) {
               },
             };
 
-    const projects = await prisma.project.findMany({
+    const paginate = String(req.query.paginate || "").toLowerCase() === "true";
+    const limitRaw = Number(req.query.limit);
+    const offsetRaw = Number(req.query.offset);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 200) : 20;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(Math.trunc(offsetRaw), 0) : 0;
+
+    const baseQuery = {
       where,
       orderBy: { createdAt: "desc" },
       include: {
@@ -71,10 +77,9 @@ export async function getProjects(req, res) {
           },
         },
       },
-    });
+    };
 
-    return res.json(
-      projects.map((project) => ({
+    const mapProject = (project) => ({
         ...project,
         progress: getProjectProgress(project.tasks),
         taskCounts: {
@@ -83,8 +88,28 @@ export async function getProjects(req, res) {
           inProgress: project.tasks.filter((task) => task.status === "IN_PROGRESS").length,
           done: project.tasks.filter((task) => task.status === "DONE").length,
         },
-      }))
-    );
+      });
+
+    if (!paginate) {
+      const projects = await prisma.project.findMany(baseQuery);
+      return res.json(projects.map(mapProject));
+    }
+
+    const [items, total] = await Promise.all([
+      prisma.project.findMany({
+        ...baseQuery,
+        skip: offset,
+        take: limit,
+      }),
+      prisma.project.count({ where }),
+    ]);
+
+    return res.json({
+      items: items.map(mapProject),
+      total,
+      hasMore: offset + items.length < total,
+      nextOffset: offset + items.length,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

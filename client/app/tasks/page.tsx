@@ -10,6 +10,7 @@ import { apiGet, apiPost } from "@/lib/api";
 import { isAdminRole } from "@/lib/dashboard";
 import { useSearchParams } from "next/navigation";
 import type { CRMUser, Task } from "@/types/crm";
+type PaginatedResponse<T> = { items: T[]; total: number; hasMore: boolean; nextOffset: number };
 
 function Surface({ children }: { children: ReactNode }) {
   return (
@@ -32,6 +33,9 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [team, setTeam] = useState<CRMUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreTasks, setHasMoreTasks] = useState(false);
+  const [nextTaskOffset, setNextTaskOffset] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [creating, setCreating] = useState(false);
@@ -52,16 +56,19 @@ export default function TasksPage() {
   const initialIssueTaskId = searchParams.get("taskId");
   const initialIssueId = searchParams.get("issueId");
 
-  const loadTasks = async () => {
-    const data = await apiGet<Task[]>("/tasks");
-    setTasks(data);
+  const loadTasks = async (append = false) => {
+    const offset = append ? nextTaskOffset : 0;
+    const data = await apiGet<PaginatedResponse<Task>>(`/tasks?paginate=true&limit=30&offset=${offset}`);
+    setTasks((current) => (append ? [...current, ...data.items] : data.items));
+    setHasMoreTasks(data.hasMore);
+    setNextTaskOffset(data.nextOffset);
   };
 
   useEffect(() => {
     async function fetchData() {
       try {
         setError("");
-        await loadTasks();
+        await loadTasks(false);
 
         if (user && isAdminRole(user.role)) {
           const users = await apiGet<CRMUser[]>("/users");
@@ -80,7 +87,7 @@ export default function TasksPage() {
   }, [user]);
 
   useRealtimeRefresh(user, ["task:updated", "issue:updated", "org:updated"], async () => {
-    await loadTasks();
+    await loadTasks(false);
 
     if (user && isAdminRole(user.role)) {
       const users = await apiGet<CRMUser[]>("/users");
@@ -114,7 +121,7 @@ export default function TasksPage() {
       });
       setForm({ title: "", description: "", userIds: [], progress: 0, checklistText: "" });
       setNotice("Task created successfully.");
-      await loadTasks();
+      await loadTasks(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create task");
     } finally {
@@ -285,6 +292,22 @@ export default function TasksPage() {
                   No tasks available yet.
                 </div>
               )}
+              {hasMoreTasks ? (
+                <div className="mt-4 flex justify-center">
+                  <button
+                    type="button"
+                    disabled={loadingMore}
+                    onClick={() => {
+                      setLoadingMore(true);
+                      void loadTasks(true).finally(() => setLoadingMore(false));
+                    }}
+                    className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                    style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                  >
+                    {loadingMore ? "Loading..." : "Load more tasks"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </Surface>
         </div>

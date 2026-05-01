@@ -140,6 +140,8 @@ export type ChatAttachmentUploadResponse = {
   size: number;
 };
 
+export type ChatMediaTypeFilter = "ALL" | "IMAGE" | "PDF";
+
 export type AssignedUser = {
   id: string;
   name: string;

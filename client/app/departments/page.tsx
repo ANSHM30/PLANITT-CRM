@@ -7,6 +7,7 @@ import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost } from "@/lib/api";
 import type { CRMUser, Department } from "@/types/crm";
+type PaginatedResponse<T> = { items: T[]; total: number; hasMore: boolean; nextOffset: number };
 
 function Surface({ children }: { children: ReactNode }) {
   return (
@@ -30,6 +31,9 @@ export default function DepartmentsPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [leaders, setLeaders] = useState<CRMUser[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [hasMoreDepartments, setHasMoreDepartments] = useState(false);
+  const [nextDepartmentOffset, setNextDepartmentOffset] = useState(0);
+  const [loadingMoreDepartments, setLoadingMoreDepartments] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [creating, setCreating] = useState(false);
@@ -46,19 +50,22 @@ export default function DepartmentsPage() {
     color: "var(--text-main)",
   } as const;
 
-  const loadData = async () => {
-    const [departmentData, userData] = await Promise.all([
-      apiGet<Department[]>("/departments"),
+  const loadData = async (append = false) => {
+    const offset = append ? nextDepartmentOffset : 0;
+    const [departmentPage, userData] = await Promise.all([
+      apiGet<PaginatedResponse<Department>>(`/departments?paginate=true&limit=20&offset=${offset}`),
       apiGet<CRMUser[]>("/users"),
     ]);
-    setDepartments(departmentData);
+    setDepartments((current) => (append ? [...current, ...departmentPage.items] : departmentPage.items));
+    setHasMoreDepartments(departmentPage.hasMore);
+    setNextDepartmentOffset(departmentPage.nextOffset);
     setLeaders(userData.filter((member) => ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role)));
   };
 
   useEffect(() => {
     async function fetchData() {
       try {
-        await loadData();
+        await loadData(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load departments");
       } finally {
@@ -72,7 +79,7 @@ export default function DepartmentsPage() {
   }, [user]);
 
   useRealtimeRefresh(user, ["org:updated"], async () => {
-    await loadData();
+    await loadData(false);
   });
 
   const createDepartment = async () => {
@@ -87,7 +94,7 @@ export default function DepartmentsPage() {
         description: "",
         headId: "",
       });
-      await loadData();
+      await loadData(false);
       setNotice("Department created successfully.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create department");
@@ -223,6 +230,22 @@ export default function DepartmentsPage() {
                 </article>
               ))}
             </div>
+            {hasMoreDepartments ? (
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  disabled={loadingMoreDepartments}
+                  onClick={() => {
+                    setLoadingMoreDepartments(true);
+                    void loadData(true).finally(() => setLoadingMoreDepartments(false));
+                  }}
+                  className="rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                >
+                  {loadingMoreDepartments ? "Loading..." : "Load more departments"}
+                </button>
+              </div>
+            ) : null}
           </Surface>
         </div>
       </div>

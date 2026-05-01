@@ -1,5 +1,6 @@
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
+import { deleteChatAssetFromCloudinaryByUrl, uploadChatAssetToCloudinary } from "../services/cloudinary.service.js";
 
 const LEADERSHIP_ROLES = ["SUPERADMIN", "ADMIN"];
 const GROUP_ADMIN_ROLES = ["SUPERADMIN", "ADMIN", "MANAGER"];
@@ -172,6 +173,10 @@ function getMessageTypeFromMime(mimeType) {
   }
 
   return "TEXT";
+}
+
+function isMediaMessage(message) {
+  return Boolean(message.attachmentUrl) && ["IMAGE", "PDF", "STICKER"].includes(message.messageType);
 }
 
 export async function getChatRooms(req, res) {
@@ -396,6 +401,11 @@ export async function getChatMessages(req, res) {
     }
 
     const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 20), 120) : 40;
+    const before = typeof req.query.before === "string" ? req.query.before.trim() : "";
+    const beforeDate = before ? new Date(before) : null;
+    const hasBeforeDate = beforeDate instanceof Date && !Number.isNaN(beforeDate.getTime());
     const messages = await prisma.chatMessage.findMany({
       where: {
         channelType,
@@ -406,9 +416,10 @@ export async function getChatMessages(req, res) {
             : { groupId: channelId }),
         hiddenBy: { none: { userId: req.user.userId } },
         ...(query ? { content: { contains: query, mode: "insensitive" } } : {}),
+        ...(hasBeforeDate ? { createdAt: { lt: beforeDate } } : {}),
       },
       orderBy: { createdAt: "desc" },
-      take: 80,
+      take: limit + 1,
       include: {
         author: {
           select: {
@@ -438,7 +449,16 @@ export async function getChatMessages(req, res) {
       },
     });
 
-    return res.json(messages.reverse().map(toMessagePayload));
+    const hasMore = messages.length > limit;
+    const page = hasMore ? messages.slice(0, limit) : messages;
+    const ordered = page.reverse().map(toMessagePayload);
+    const nextBefore = page.length ? page[page.length - 1].createdAt : null;
+
+    return res.json({
+      messages: ordered,
+      hasMore,
+      nextBefore,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -584,6 +604,8 @@ export async function deleteChatMessage(req, res) {
         departmentId: true,
         projectId: true,
         groupId: true,
+        attachmentUrl: true,
+        attachmentMimeType: true,
         isDeleted: true,
       },
     });
@@ -626,6 +648,10 @@ export async function deleteChatMessage(req, res) {
 
     if (message.isDeleted) {
       return res.status(200).json({ success: true });
+    }
+
+    if (message.attachmentUrl) {
+      await deleteChatAssetFromCloudinaryByUrl(message.attachmentUrl, message.attachmentMimeType).catch(() => null);
     }
 
     const updated = await prisma.chatMessage.update({
@@ -905,6 +931,278 @@ export async function clearChatLocal(req, res) {
   }
 }
 
+export async function getChatMedia(req, res) {
+  try {
+    const channelType = String(req.query.type || "").toUpperCase();
+    const channelId = String(req.query.id || "");
+    const mediaType = String(req.query.mediaType || "ALL").toUpperCase();
+
+    if (!(await canAccessRoom(req.user, channelType, channelId))) {
+      return res.status(403).json({ error: "You do not have access to this chat room" });
+    }
+
+    const messageTypeFilter =
+      mediaType === "IMAGE"
+        ? ["IMAGE", "STICKER"]
+        : mediaType === "PDF"
+          ? ["PDF"]
+          : ["IMAGE", "STICKER", "PDF"];
+
+    const messages = await prisma.chatMessage.findMany({
+      where: {
+        channelType,
+        ...(channelType === "DEPARTMENT"
+          ? { departmentId: channelId }
+          : channelType === "PROJECT"
+            ? { projectId: channelId }
+            : { groupId: channelId }),
+        hiddenBy: { none: { userId: req.user.userId } },
+        isDeleted: false,
+        attachmentUrl: { not: null },
+        messageType: { in: messageTypeFilter },
+      },
+      orderBy: { createdAt: "desc" },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      take: 250,
+    });
+
+    return res.json(messages.map(toMessagePayload));
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteChatMedia(req, res) {
+  try {
+    const messageId = String(req.params.id || "");
+    const message = await prisma.chatMessage.findUnique({
+      where: { id: messageId },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            attachmentFileName: true,
+            isDeleted: true,
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    const channelId =
+      message.channelType === "DEPARTMENT"
+        ? message.departmentId
+        : message.channelType === "PROJECT"
+          ? message.projectId
+          : message.groupId;
+    if (!(await canAccessRoom(req.user, message.channelType, channelId))) {
+      return res.status(403).json({ error: "You do not have access to this chat room" });
+    }
+
+    if (!isMediaMessage(message)) {
+      return res.status(400).json({ error: "This message does not contain media attachment" });
+    }
+
+    const canDeleteEveryone = message.authorId === req.user.userId || isLeadership(req.user);
+    if (!canDeleteEveryone) {
+      return res.status(403).json({ error: "Only sender or admin can delete media for everyone" });
+    }
+
+    await deleteChatAssetFromCloudinaryByUrl(message.attachmentUrl, message.attachmentMimeType).catch(() => null);
+
+    const updated = await prisma.chatMessage.update({
+      where: { id: message.id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        content: "This media was deleted",
+        attachmentUrl: null,
+        attachmentMimeType: null,
+        attachmentFileName: null,
+        messageType: "TEXT",
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            attachmentFileName: true,
+            isDeleted: true,
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    emitCRMEvent("chat:message:update", toMessagePayload(updated));
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function deleteChatMediaBulk(req, res) {
+  try {
+    const messageIds = Array.isArray(req.body.messageIds) ? req.body.messageIds.map(String) : [];
+    if (!messageIds.length) {
+      return res.status(400).json({ error: "messageIds array is required" });
+    }
+
+    const uniqueMessageIds = [...new Set(messageIds)].slice(0, 100);
+    const messages = await prisma.chatMessage.findMany({
+      where: { id: { in: uniqueMessageIds } },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        replyTo: {
+          select: {
+            id: true,
+            content: true,
+            messageType: true,
+            attachmentFileName: true,
+            isDeleted: true,
+            author: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const results = [];
+    for (const message of messages) {
+      const channelId =
+        message.channelType === "DEPARTMENT"
+          ? message.departmentId
+          : message.channelType === "PROJECT"
+            ? message.projectId
+            : message.groupId;
+      if (!(await canAccessRoom(req.user, message.channelType, channelId))) {
+        results.push({ id: message.id, success: false, reason: "forbidden" });
+        continue;
+      }
+      const canDeleteEveryone = message.authorId === req.user.userId || isLeadership(req.user);
+      if (!canDeleteEveryone) {
+        results.push({ id: message.id, success: false, reason: "not_allowed" });
+        continue;
+      }
+      if (!isMediaMessage(message)) {
+        results.push({ id: message.id, success: false, reason: "not_media" });
+        continue;
+      }
+
+      await deleteChatAssetFromCloudinaryByUrl(message.attachmentUrl, message.attachmentMimeType).catch(() => null);
+
+      const updated = await prisma.chatMessage.update({
+        where: { id: message.id },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          content: "This media was deleted",
+          attachmentUrl: null,
+          attachmentMimeType: null,
+          attachmentFileName: null,
+          messageType: "TEXT",
+        },
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          replyTo: {
+            select: {
+              id: true,
+              content: true,
+              messageType: true,
+              attachmentFileName: true,
+              isDeleted: true,
+              author: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  role: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      emitCRMEvent("chat:message:update", toMessagePayload(updated));
+      results.push({ id: message.id, success: true });
+    }
+
+    return res.json({
+      success: true,
+      deletedCount: results.filter((r) => r.success).length,
+      results,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
 export async function uploadChatAttachment(req, res) {
   try {
     const channelType = String(req.body.channelType || "").toUpperCase();
@@ -923,9 +1221,20 @@ export async function uploadChatAttachment(req, res) {
       return res.status(400).json({ error: "Unsupported file type. Only images and PDFs are allowed." });
     }
 
+    const safeBaseName = req.file.originalname
+      .replace(/\.[^/.]+$/, "")
+      .replace(/[^a-zA-Z0-9_-]/g, "-")
+      .slice(0, 50);
+    const publicId = `${channelType.toLowerCase()}-${channelId}/${Date.now()}-${safeBaseName || "attachment"}`;
+
+    const uploaded = await uploadChatAssetToCloudinary(req.file, {
+      folder: "planitt-crm/chat",
+      publicId,
+    });
+
     return res.status(201).json({
       messageType,
-      attachmentUrl: `/uploads/chat/${req.file.filename}`,
+      attachmentUrl: uploaded.secure_url,
       attachmentMimeType: req.file.mimetype,
       attachmentFileName: req.file.originalname,
       size: req.file.size,
