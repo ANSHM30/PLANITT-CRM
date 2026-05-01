@@ -4,6 +4,7 @@ import {
   getGoogleLoginUrl,
   handleGoogleLoginCallback,
   login,
+  logout,
   signup,
 } from "../controllers/auth.controller.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
@@ -12,6 +13,7 @@ const router = express.Router();
 
 router.post("/signup", signup);
 router.post("/login", login);
+router.post("/logout", logout);
 router.get("/google/auth-url", getGoogleLoginUrl);
 router.get("/google/callback", handleGoogleLoginCallback);
 router.get("/me", authMiddleware, getCurrentUser);

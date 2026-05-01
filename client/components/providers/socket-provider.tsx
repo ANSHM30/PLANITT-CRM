@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { io, type Socket } from "socket.io-client";
-import { getAuthEventName, getToken } from "@/lib/auth";
+import { getAuthEventName } from "@/lib/auth";
 
 type SocketContextValue = {
   socket: Socket | null;
@@ -46,19 +46,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const token = getToken();
-
-    if (!token) {
-      setSocket(null);
-      setConnected(false);
-      return;
-    }
-
     const nextSocket = io(getSocketUrl(), {
       transports: ["websocket"],
-      auth: {
-        token,
-      },
+      withCredentials: true,
     });
 
     nextSocket.on("connect", () => {

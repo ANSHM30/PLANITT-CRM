@@ -1,4 +1,3 @@
-import { getToken } from "./auth";
 import { normalizeErrorMessage } from "./error-message";
 
 const FALLBACK_API_ORIGIN = "http://localhost:5000";
@@ -62,11 +61,7 @@ async function parseResponse<T>(response: Response): Promise<T> {
 export async function apiGet<T>(path: string): Promise<T> {
   const response = await request(buildApiUrl(path), {
     cache: "no-store",
-    headers: getToken()
-      ? {
-          Authorization: `Bearer ${getToken()}`,
-        }
-      : undefined,
+    credentials: "include",
   });
 
   return parseResponse<T>(response);
@@ -75,13 +70,9 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const response = await request(buildApiUrl(path), {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(getToken()
-        ? {
-            Authorization: `Bearer ${getToken()}`,
-          }
-        : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -92,13 +83,9 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
   const response = await request(buildApiUrl(path), {
     method: "PUT",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(getToken()
-        ? {
-            Authorization: `Bearer ${getToken()}`,
-          }
-        : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -109,11 +96,7 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
 export async function apiDelete<T>(path: string): Promise<T> {
   const response = await request(buildApiUrl(path), {
     method: "DELETE",
-    headers: getToken()
-      ? {
-          Authorization: `Bearer ${getToken()}`,
-        }
-      : undefined,
+    credentials: "include",
   });
 
   if (response.status === 204) {
@@ -126,11 +109,7 @@ export async function apiDelete<T>(path: string): Promise<T> {
 export async function apiPostForm<T>(path: string, body: FormData): Promise<T> {
   const response = await request(buildApiUrl(path), {
     method: "POST",
-    headers: getToken()
-      ? {
-          Authorization: `Bearer ${getToken()}`,
-        }
-      : undefined,
+    credentials: "include",
     body,
   });
 

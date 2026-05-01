@@ -1,5 +1,6 @@
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 function getTaskInclude() {
   return {
@@ -167,7 +168,7 @@ export async function createTask(req, res) {
 
     return res.status(201).json(task);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create task");
   }
 }
 
@@ -224,7 +225,7 @@ export async function getTasks(_req, res) {
       nextOffset: offset + items.length,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch tasks");
   }
 }
 
@@ -382,7 +383,7 @@ export async function updateTaskStatus(req, res) {
 
     return res.json(task);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update task");
   }
 }
 
@@ -423,7 +424,7 @@ export async function deleteTask(req, res) {
 
     return res.status(204).send();
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update task progress");
   }
 }
 
@@ -479,7 +480,7 @@ export async function toggleChecklistItem(req, res) {
     }
     return res.json(task);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to delete task");
   }
 }
 
@@ -569,7 +570,7 @@ export async function createTaskIssue(req, res) {
 
     return res.status(201).json(issue);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update checklist item");
   }
 }
 
@@ -667,6 +668,6 @@ export async function respondToTaskIssue(req, res) {
 
     return res.json(updatedIssue);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update issue");
   }
 }

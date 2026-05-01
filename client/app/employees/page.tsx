@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
@@ -178,6 +178,15 @@ export default function EmployeesPage() {
   const managers = allUsers.filter((member) =>
     ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role)
   );
+  const peopleAnalytics = useMemo(() => {
+    const total = allUsers.length;
+    const employees = allUsers.filter((member) => member.role === "EMPLOYEE").length;
+    const interns = allUsers.filter((member) => member.role === "INTERN").length;
+    const leadership = allUsers.filter((member) => ["SUPERADMIN", "ADMIN", "MANAGER"].includes(member.role)).length;
+    const assignedDepartment = allUsers.filter((member) => Boolean(member.department?.id)).length;
+    const departmentCoverage = total ? Math.round((assignedDepartment / total) * 100) : 0;
+    return { total, employees, interns, leadership, departmentCoverage };
+  }, [allUsers]);
 
   const hasAssignedLeadershipLinks = (member: CRMUser) => {
     if (!["EMPLOYEE", "INTERN"].includes(member.role)) {
@@ -203,6 +212,24 @@ export default function EmployeesPage() {
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">
             Create members, assign departments, and connect employees or interns to their reporting managers.
           </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {[
+              { label: "Total members", value: peopleAnalytics.total },
+              { label: "Employees", value: peopleAnalytics.employees },
+              { label: "Interns", value: peopleAnalytics.interns },
+              { label: "Leadership", value: peopleAnalytics.leadership },
+              { label: "Dept coverage", value: `${peopleAnalytics.departmentCoverage}%` },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border px-4 py-3"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">{item.label}</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--text-main)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
         </Surface>
 
         <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">

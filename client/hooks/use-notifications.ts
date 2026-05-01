@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSocket } from "@/components/providers/socket-provider";
-import { getToken } from "@/lib/auth";
 import type { CRMUser } from "@/types/crm";
 
 type NotificationItem = {
@@ -48,14 +47,11 @@ export function useNotifications(user: CRMUser) {
   }, [items, user.id]);
 
   useEffect(() => {
-    if (!socket || !getToken()) {
+    if (!socket) {
       return;
     }
 
-    socket.emit("crm:join", {
-      userId: user.id,
-      role: user.role,
-    });
+    socket.emit("crm:join", {});
 
     const push = (notification: Omit<NotificationItem, "id" | "createdAt" | "read">) => {
       const nextId = createNotificationId();

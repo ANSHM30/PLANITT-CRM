@@ -1,5 +1,6 @@
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 export async function getDepartments(_req, res) {
   try {
@@ -49,7 +50,7 @@ export async function getDepartments(_req, res) {
       nextOffset: offset + items.length,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch departments");
   }
 }
 
@@ -102,6 +103,6 @@ export async function createDepartment(req, res) {
 
     return res.status(201).json(department);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create department");
   }
 }

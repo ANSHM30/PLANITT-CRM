@@ -1,6 +1,7 @@
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
 import { deleteChatAssetFromCloudinaryByUrl, uploadChatAssetToCloudinary } from "../services/cloudinary.service.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 const LEADERSHIP_ROLES = ["SUPERADMIN", "ADMIN"];
 const GROUP_ADMIN_ROLES = ["SUPERADMIN", "ADMIN", "MANAGER"];
@@ -387,7 +388,7 @@ export async function getChatRooms(req, res) {
       groups: groupsWithMeta,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch chat channels");
   }
 }
 
@@ -460,7 +461,7 @@ export async function getChatMessages(req, res) {
       nextBefore,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch chat messages");
   }
 }
 
@@ -587,7 +588,7 @@ export async function createChatMessage(req, res) {
 
     return res.status(201).json(payload);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to send chat message");
   }
 }
 
@@ -697,7 +698,7 @@ export async function deleteChatMessage(req, res) {
     emitCRMEvent("chat:message:update", toMessagePayload(updated));
     return res.json({ success: true });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to delete chat message");
   }
 }
 
@@ -727,7 +728,7 @@ export async function markChatRoomRead(req, res) {
     });
     return res.json({ success: true });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to mark chat room as read");
   }
 }
 
@@ -761,7 +762,7 @@ export async function createChatGroup(req, res) {
     });
     return res.status(201).json(group);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch groups");
   }
 }
 
@@ -780,7 +781,7 @@ export async function getChatGroupById(req, res) {
     }
     return res.json(group);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create group");
   }
 }
 
@@ -806,7 +807,7 @@ export async function getChatGroupMembers(req, res) {
     });
     return res.json(members);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update group");
   }
 }
 
@@ -827,7 +828,7 @@ export async function updateChatGroup(req, res) {
     });
     return res.json(group);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to delete group");
   }
 }
 
@@ -842,7 +843,7 @@ export async function deleteChatGroup(req, res) {
     });
     return res.status(204).send();
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to add group member");
   }
 }
 
@@ -873,7 +874,7 @@ export async function addChatGroupMembers(req, res) {
     });
     return res.json(members);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to remove group member");
   }
 }
 
@@ -889,7 +890,7 @@ export async function removeChatGroupMember(req, res) {
     });
     return res.json({ success: true });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to leave group");
   }
 }
 
@@ -927,7 +928,7 @@ export async function clearChatLocal(req, res) {
     });
     return res.json({ success: true, hidden: messages.length });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch group members");
   }
 }
 
@@ -977,7 +978,7 @@ export async function getChatMedia(req, res) {
 
     return res.json(messages.map(toMessagePayload));
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to mark messages as read");
   }
 }
 
@@ -1083,7 +1084,7 @@ export async function deleteChatMedia(req, res) {
     emitCRMEvent("chat:message:update", toMessagePayload(updated));
     return res.json({ success: true });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to add reaction");
   }
 }
 
@@ -1199,7 +1200,7 @@ export async function deleteChatMediaBulk(req, res) {
       results,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to remove reaction");
   }
 }
 
@@ -1240,6 +1241,6 @@ export async function uploadChatAttachment(req, res) {
       size: req.file.size,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to upload attachment");
   }
 }

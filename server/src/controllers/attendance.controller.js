@@ -1,5 +1,6 @@
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 export async function checkIn(req, res) {
   try {
@@ -29,7 +30,7 @@ export async function checkIn(req, res) {
 
     return res.status(201).json(attendance);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to check in");
   }
 }
 
@@ -59,6 +60,6 @@ export async function checkOut(req, res) {
 
     return res.json(updated);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to check out");
   }
 }

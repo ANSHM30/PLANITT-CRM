@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
-import { clearToken, getToken } from "@/lib/auth";
+import { clearToken } from "@/lib/auth";
 import { normalizeErrorMessage } from "@/lib/error-message";
 import type { CRMUser, UserRole } from "@/types/crm";
 
@@ -24,16 +24,6 @@ export function useSession(options: UseSessionOptions = {}) {
     let isMounted = true;
 
     async function loadUser() {
-      const token = getToken();
-
-      if (!token) {
-        if (isMounted) {
-          setLoading(false);
-        }
-        router.replace(redirectTo);
-        return;
-      }
-
       try {
         const currentUser = await apiGet<CRMUser>("/auth/me");
 

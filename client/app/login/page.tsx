@@ -21,23 +21,16 @@ export default function LoginPage() {
       return;
     }
 
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    const hashParams = new URLSearchParams(hash);
-    const googleToken = hashParams.get("google_token");
-    const googleState = hashParams.get("google");
+    const query = new URLSearchParams(window.location.search);
+    const queryState = query.get("google");
+    const state = queryState;
 
-    if (googleToken) {
-      setToken(decodeURIComponent(googleToken));
+    if (state === "connected") {
+      setToken("cookie-session");
       window.history.replaceState({}, document.title, "/login");
       router.push("/dashboard");
       return;
     }
-
-    const query = new URLSearchParams(window.location.search);
-    const queryState = query.get("google");
-    const state = queryState || googleState;
 
     if (state === "user_not_found") {
       setError("Google account is not registered in CRM yet. Ask admin to create your user first.");
@@ -61,6 +54,7 @@ export default function LoginPage() {
 
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -73,7 +67,7 @@ export default function LoginPage() {
         throw new Error(data.error || "Login failed");
       }
 
-      setToken(data.token);
+      setToken("cookie-session");
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -87,7 +81,9 @@ export default function LoginPage() {
       setGoogleLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE_URL}/auth/google/auth-url`);
+      const res = await fetch(`${API_BASE_URL}/auth/google/auth-url`, {
+        credentials: "include",
+      });
       const data = await res.json();
 
       if (!res.ok || !data.authUrl) {
@@ -140,6 +136,7 @@ export default function LoginPage() {
 
           <div className="mt-8 space-y-4">
             <input
+              suppressHydrationWarning
               className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-950"
               placeholder="Email"
               value={email}
@@ -147,6 +144,7 @@ export default function LoginPage() {
             />
 
             <input
+              suppressHydrationWarning
               className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-950"
               type="password"
               placeholder="Password"
@@ -158,6 +156,7 @@ export default function LoginPage() {
           {error ? <p className="mt-4 text-sm font-medium text-rose-600">{error}</p> : null}
 
           <button
+            suppressHydrationWarning
             onClick={handleLogin}
             className="mt-6 h-14 w-full rounded-2xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
             disabled={loading}
@@ -166,6 +165,7 @@ export default function LoginPage() {
           </button>
 
           <button
+            suppressHydrationWarning
             type="button"
             onClick={handleGoogleLogin}
             className="mt-3 h-14 w-full rounded-2xl border border-slate-300 bg-white text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"

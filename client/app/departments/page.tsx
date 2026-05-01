@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
@@ -103,6 +103,15 @@ export default function DepartmentsPage() {
     }
   };
 
+  const departmentAnalytics = useMemo(() => {
+    const total = departments.length;
+    const totalMembers = departments.reduce((sum, department) => sum + (department._count?.users ?? 0), 0);
+    const withHead = departments.filter((department) => Boolean(department.head?.id)).length;
+    const avgMembers = total ? Math.round(totalMembers / total) : 0;
+    const leadershipCoverage = total ? Math.round((withHead / total) * 100) : 0;
+    return { total, totalMembers, avgMembers, leadershipCoverage };
+  }, [departments]);
+
   if (sessionLoading || !user) {
     return <StatePanel title="Loading departments" description="Preparing organization structure." />;
   }
@@ -120,6 +129,23 @@ export default function DepartmentsPage() {
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-soft)]">
             Structure the company into technical, marketing, research, and operations teams with clearer ownership.
           </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: "Departments", value: departmentAnalytics.total },
+              { label: "Total members", value: departmentAnalytics.totalMembers },
+              { label: "Avg members", value: departmentAnalytics.avgMembers },
+              { label: "Head assigned", value: `${departmentAnalytics.leadershipCoverage}%` },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border px-4 py-3"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">{item.label}</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--text-main)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
         </Surface>
 
         <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">

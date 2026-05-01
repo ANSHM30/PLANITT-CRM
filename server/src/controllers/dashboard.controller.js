@@ -1,4 +1,5 @@
 import prisma from "../config/db.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 function toDateKey(date) {
   return date.toISOString().slice(0, 10);
@@ -774,6 +775,6 @@ export async function getDashboardSummary(req, res) {
       },
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch dashboard metrics");
   }
 }

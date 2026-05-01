@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
 import prisma from "../config/db.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
+import { getJwtSecret } from "../config/security.js";
+import { verifyGoogleIdToken } from "../utils/google-token.js";
 
 const GOOGLE_AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -62,30 +65,13 @@ function buildScopes(services) {
 }
 
 function signState(payload) {
-  const secret = process.env.JWT_SECRET || "SECRET";
+  const secret = getJwtSecret();
   return jwt.sign(payload, secret, { expiresIn: "10m" });
 }
 
 function verifyState(token) {
-  const secret = process.env.JWT_SECRET || "SECRET";
+  const secret = getJwtSecret();
   return jwt.verify(token, secret);
-}
-
-function decodeJwtPayload(token) {
-  if (!token) {
-    return {};
-  }
-
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    return {};
-  }
-
-  const payload = parts[1];
-  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  const decoded = Buffer.from(padded, "base64").toString("utf8");
-  return JSON.parse(decoded);
 }
 
 async function refreshGoogleAccessToken(connection, config) {
@@ -444,7 +430,7 @@ export async function getGoogleWorkspaceStatus(req, res) {
       });
     }
 
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch workspace status");
   }
 }
 
@@ -483,7 +469,7 @@ export async function getGoogleAuthUrl(req, res) {
       scopes,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create Google auth URL");
   }
 }
 
@@ -530,7 +516,7 @@ export async function handleGoogleCallback(req, res) {
       return res.redirect(`${dashboardUrl}&google=token_failed`);
     }
 
-    const idTokenPayload = decodeJwtPayload(tokenPayload.id_token);
+    const idTokenPayload = await verifyGoogleIdToken(tokenPayload.id_token, config.clientId);
     const grantedScopes = (tokenPayload.scope || "")
       .split(" ")
       .map((scope) => scope.trim())
@@ -584,7 +570,7 @@ export async function disconnectGoogleWorkspace(req, res) {
     });
     return res.status(204).send();
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to disconnect Google Workspace");
   }
 }
 
@@ -649,7 +635,7 @@ export async function createGoogleMeetSession(req, res) {
       },
     });
   } catch (err) {
-    return res.status(err.status || 500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create Google Meet session");
   }
 }
 
@@ -702,7 +688,7 @@ export async function createGoogleProjectSheet(req, res) {
       },
     });
   } catch (err) {
-    return res.status(err.status || 500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create Google project sheet");
   }
 }
 
@@ -769,6 +755,6 @@ export async function createGoogleDriveProjectFolder(req, res) {
       },
     });
   } catch (err) {
-    return res.status(err.status || 500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create Google Drive folder");
   }
 }

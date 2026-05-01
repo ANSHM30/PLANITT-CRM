@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { useSocket } from "@/components/providers/socket-provider";
-import { getToken } from "@/lib/auth";
 import type { CRMUser } from "@/types/crm";
 
 export function useRealtimeRefresh(
@@ -20,14 +19,11 @@ export function useRealtimeRefresh(
   }, [onRefresh]);
 
   useEffect(() => {
-    if (!socket || !user || !getToken()) {
+    if (!socket || !user) {
       return;
     }
 
-    socket.emit("crm:join", {
-      userId: user.id,
-      role: user.role,
-    });
+    socket.emit("crm:join", {});
 
     const handler = () => {
       if (timerRef.current) {

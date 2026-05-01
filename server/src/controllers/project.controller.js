@@ -1,5 +1,6 @@
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 function getProjectProgress(tasks) {
   if (!tasks.length) {
@@ -111,7 +112,7 @@ export async function getProjects(req, res) {
       nextOffset: offset + items.length,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch projects");
   }
 }
 
@@ -191,6 +192,6 @@ export async function createProject(req, res) {
       },
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create project");
   }
 }

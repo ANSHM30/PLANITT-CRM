@@ -132,6 +132,13 @@ export default function ChatPage() {
   const selectedRoom = allRooms.find((room) => roomKey(room) === selectedKey) ?? null;
   const canManageGroups = user ? ["SUPERADMIN", "ADMIN", "MANAGER"].includes(user.role) : false;
   const canClearChat = user ? ["SUPERADMIN", "ADMIN", "MANAGER"].includes(user.role) : false;
+  const chatAnalytics = useMemo(() => {
+    const totalRooms = rooms.departments.length + rooms.projects.length + rooms.groups.length;
+    const unreadTotal = allRooms.reduce((sum, room) => sum + (room.unreadCount ?? 0), 0);
+    const totalMessages = messages.length;
+    const attachmentMessages = messages.filter((message) => Boolean(message.attachmentUrl)).length;
+    return { totalRooms, unreadTotal, totalMessages, attachmentMessages };
+  }, [rooms, allRooms, messages]);
 
   useEffect(() => {
     async function loadRooms() {
@@ -643,6 +650,24 @@ export default function ChatPage() {
               + Create group
             </button>
           ) : null}
+
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {[
+              { label: "Rooms", value: chatAnalytics.totalRooms },
+              { label: "Unread", value: chatAnalytics.unreadTotal },
+              { label: "Visible msgs", value: chatAnalytics.totalMessages },
+              { label: "Media msgs", value: chatAnalytics.attachmentMessages },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-xl border px-3 py-2"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-[10px] uppercase tracking-[0.16em] text-[var(--text-faint)]">{item.label}</p>
+                <p className="mt-1 text-sm font-semibold text-[var(--text-main)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
 
           {error ? <p className="mt-4 rounded-2xl bg-red-500/10 px-4 py-3 text-sm text-red-600">{error}</p> : null}
 

@@ -143,6 +143,18 @@ export default function ProjectsPage() {
     [tasks]
   );
 
+  const projectAnalytics = useMemo(() => {
+    const totalProjects = projects.length;
+    const avgProgress = totalProjects
+      ? Math.round(projects.reduce((sum, project) => sum + project.progress, 0) / totalProjects)
+      : 0;
+    const totalTasks = projects.reduce((sum, project) => sum + project.taskCounts.total, 0);
+    const completedTasks = projects.reduce((sum, project) => sum + project.taskCounts.done, 0);
+    const completionRate = totalTasks ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const delayedProjects = projects.filter((project) => project.progress < 40 && project.taskCounts.total >= 3).length;
+    return { totalProjects, avgProgress, totalTasks, completionRate, delayedProjects };
+  }, [projects]);
+
   const handleAssigneeToggle = (userId: string) => {
     setTaskForm((current) => ({
       ...current,
@@ -296,7 +308,34 @@ export default function ProjectsPage() {
 
   return (
     <CRMShell user={user}>
-      <div className="grid gap-4 xl:grid-cols-[300px_1fr]">
+      <div className="space-y-4">
+        <Surface>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">Projects analytics</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--text-main)]">Project command center</h1>
+          <p className="mt-3 text-sm leading-6 text-[var(--text-soft)]">
+            A simple analytical view of project throughput, completion quality, and potential delivery risk.
+          </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {[
+              { label: "Total projects", value: projectAnalytics.totalProjects },
+              { label: "Average progress", value: `${projectAnalytics.avgProgress}%` },
+              { label: "Total tasks", value: projectAnalytics.totalTasks },
+              { label: "Completion rate", value: `${projectAnalytics.completionRate}%` },
+              { label: "Risk projects", value: projectAnalytics.delayedProjects },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border px-4 py-3"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">{item.label}</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--text-main)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </Surface>
+
+        <div className="grid gap-4 xl:grid-cols-[300px_1fr]">
         <aside className="space-y-4">
           <Surface>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
@@ -746,6 +785,7 @@ export default function ProjectsPage() {
             ))}
           </section>
         </section>
+      </div>
       </div>
     </CRMShell>
   );

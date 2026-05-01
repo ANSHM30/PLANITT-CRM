@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { apiPost } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useNotifications } from "@/hooks/use-notifications";
@@ -81,7 +82,12 @@ export function CRMShell({ children, user }: CRMShellProps) {
     { href: "/settings", label: "Settings", icon: "S" },
   ];
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await apiPost<void>("/auth/logout");
+    } catch {
+      // Client state is still cleared even if logout endpoint is temporarily unavailable.
+    }
     clearToken();
     router.replace("/login");
   };

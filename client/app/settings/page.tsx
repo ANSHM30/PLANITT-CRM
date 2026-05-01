@@ -75,6 +75,15 @@ export default function SettingsPage() {
     user.role === "SUPERADMIN"
       ? "As Superadmin (CEO), you can change team emails from Team Management. Your own email is locked here to avoid accidental account lockout."
       : "Contact your manager, admin, or superadmin for email changes.";
+  const profileCompleteness = Math.round(
+    ([
+      Boolean(form.name.trim()),
+      Boolean(form.designation.trim()),
+      Boolean(profile.email.trim()),
+    ].filter(Boolean).length /
+      3) *
+      100
+  );
 
   return (
     <CRMShell user={user}>
@@ -94,6 +103,20 @@ export default function SettingsPage() {
           <p className="mt-2 text-sm text-[var(--text-soft)]">
             You can update your name, designation, and password here.
           </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Role</p>
+              <p className="mt-2 text-lg font-semibold text-[var(--text-main)]">{user.role}</p>
+            </div>
+            <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Profile completeness</p>
+              <p className="mt-2 text-lg font-semibold text-[var(--text-main)]">{profileCompleteness}%</p>
+            </div>
+            <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">Session model</p>
+              <p className="mt-2 text-lg font-semibold text-[var(--text-main)]">HttpOnly Cookie</p>
+            </div>
+          </div>
         </section>
 
         <section

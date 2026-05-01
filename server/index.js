@@ -3,6 +3,7 @@ import http from "http";
 import app from "./src/app.js";
 import { initSocket } from "./src/socket.js";
 import prisma from "./src/config/db.js";
+import { getJwtSecret } from "./src/config/security.js";
 
 const port = process.env.PORT || 5000;
 
@@ -42,6 +43,7 @@ async function connectDatabaseWithRetry(maxAttempts = 5) {
 }
 
 async function start() {
+  getJwtSecret();
   await connectDatabaseWithRetry();
   server.listen(port, () => {
     console.log(`CRM API running on http://localhost:${port}`);

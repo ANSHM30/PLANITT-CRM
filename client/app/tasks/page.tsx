@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
@@ -55,6 +55,17 @@ export default function TasksPage() {
 
   const initialIssueTaskId = searchParams.get("taskId");
   const initialIssueId = searchParams.get("issueId");
+  const taskAnalytics = useMemo(() => {
+    const total = tasks.length;
+    const done = tasks.filter((task) => task.status === "DONE").length;
+    const inProgress = tasks.filter((task) => task.status === "IN_PROGRESS").length;
+    const todo = tasks.filter((task) => task.status === "TODO").length;
+    const completionRate = total ? Math.round((done / total) * 100) : 0;
+    const avgProgress = total
+      ? Math.round(tasks.reduce((sum, task) => sum + (task.progress || 0), 0) / total)
+      : 0;
+    return { total, done, inProgress, todo, completionRate, avgProgress };
+  }, [tasks]);
 
   const loadTasks = async (append = false) => {
     const offset = append ? nextTaskOffset : 0;
@@ -146,6 +157,25 @@ export default function TasksPage() {
               ? "Create and assign work in a focused workspace without oversized panels."
               : "Review assignments, update progress, and report blockers from one clean view."}
           </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {[
+              { label: "All tasks", value: taskAnalytics.total },
+              { label: "Done", value: taskAnalytics.done },
+              { label: "In progress", value: taskAnalytics.inProgress },
+              { label: "Todo", value: taskAnalytics.todo },
+              { label: "Completion", value: `${taskAnalytics.completionRate}%` },
+              { label: "Avg progress", value: `${taskAnalytics.avgProgress}%` },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="rounded-2xl border px-4 py-3"
+                style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+              >
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">{item.label}</p>
+                <p className="mt-2 text-xl font-semibold text-[var(--text-main)]">{item.value}</p>
+              </div>
+            ))}
+          </div>
         </Surface>
 
         <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">

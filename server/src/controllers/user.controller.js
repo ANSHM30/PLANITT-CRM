@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
 
 function toPublicUserSelect() {
   return {
@@ -201,7 +202,7 @@ export async function getUsers(_req, res) {
       nextOffset: offset + items.length,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch users");
   }
 }
 
@@ -283,7 +284,7 @@ export async function createUser(req, res) {
 
     return res.status(201).json(user);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create user");
   }
 }
 
@@ -358,7 +359,7 @@ export async function updateUserAssignment(req, res) {
 
     return res.json(user);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update user password");
   }
 }
 
@@ -375,7 +376,7 @@ export async function getMyProfile(req, res) {
 
     return res.json(user);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to reset user password");
   }
 }
 
@@ -427,7 +428,7 @@ export async function updateMyProfile(req, res) {
 
     return res.json(user);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to update user");
   }
 }
 
@@ -489,7 +490,7 @@ export async function updateUserProfileByLeadership(req, res) {
 
     return res.json(user);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to delete user");
   }
 }
 
@@ -721,6 +722,6 @@ export async function getUserAnalytics(req, res) {
       },
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch activity metrics");
   }
 }

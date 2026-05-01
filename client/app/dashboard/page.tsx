@@ -204,6 +204,101 @@ function LineChartCard({
   );
 }
 
+function ActivityBarsCard({
+  title,
+  subtitle,
+  labels,
+  createdValues,
+  completedValues,
+}: {
+  title: string;
+  subtitle: string;
+  labels: string[];
+  createdValues: number[];
+  completedValues: number[];
+}) {
+  const maxValue = Math.max(1, ...createdValues, ...completedValues);
+
+  return (
+    <Surface className="p-5">
+      <div className="mb-5">
+        <p className="text-sm font-semibold text-[var(--text-main)]">{title}</p>
+        <p className="mt-1 text-sm text-[var(--text-soft)]">{subtitle}</p>
+      </div>
+
+      <div className="rounded-[20px] border p-4" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
+        <div className="space-y-3.5">
+          {labels.map((label, index) => {
+            const created = createdValues[index] ?? 0;
+            const completed = completedValues[index] ?? 0;
+            const createdWidth = (created / maxValue) * 100;
+            const completedWidth = (completed / maxValue) * 100;
+
+            return (
+              <div key={`${label}-${index}`}>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium text-[var(--text-main)]">{label}</p>
+                  <p className="text-xs text-[var(--text-soft)]">
+                    C:{created} / D:{completed}
+                  </p>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full" style={{ background: "color-mix(in srgb, var(--border) 60%, transparent)" }}>
+                  <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${createdWidth}%` }} />
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full" style={{ background: "color-mix(in srgb, var(--border) 60%, transparent)" }}>
+                  <div className="h-full rounded-full bg-[var(--success)]" style={{ width: `${completedWidth}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-4 flex items-center gap-4 text-xs text-[var(--text-soft)]">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[var(--accent)]" />
+            Created
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[var(--success)]" />
+            Completed
+          </span>
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function InsightTicker({
+  items,
+}: {
+  items: Array<{ label: string; value: string; tone: "neutral" | "positive" | "warning" }>;
+}) {
+  return (
+    <Surface className="p-4">
+      <div className="grid gap-3 md:grid-cols-3">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="rounded-2xl border px-4 py-3"
+            style={{
+              borderColor: "var(--border)",
+              background:
+                item.tone === "positive"
+                  ? "color-mix(in srgb, var(--success) 12%, var(--surface))"
+                  : item.tone === "warning"
+                    ? "color-mix(in srgb, var(--warning) 12%, var(--surface))"
+                    : "var(--surface-soft)",
+            }}
+          >
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--text-faint)]">{item.label}</p>
+            <p className="mt-2 text-lg font-semibold text-[var(--text-main)]">{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </Surface>
+  );
+}
+
 function PerformanceBars({
   title,
   subtitle,
@@ -1990,6 +2085,38 @@ export default function DashboardPage() {
     .sort((a, b) => b.score - a.score);
   const topPerformers = performerRankings.slice(0, 5);
   const needsSupport = [...performerRankings].reverse().slice(0, 5);
+  const recentTrend = summary.analytics.taskProgressTrend.slice(-7);
+  const insightItems = [
+    {
+      label: "Execution pace",
+      value:
+        progressDelta > 0
+          ? `Up ${Math.abs(progressDelta)}% vs last day`
+          : progressDelta < 0
+            ? `Down ${Math.abs(progressDelta)}% vs last day`
+            : "Stable vs last day",
+      tone: (progressDelta > 0 ? "positive" : progressDelta < 0 ? "warning" : "neutral") as
+        | "neutral"
+        | "positive"
+        | "warning",
+    },
+    {
+      label: "Attendance pulse",
+      value: `${attendanceRate}% live participation`,
+      tone: (attendanceRate >= 75 ? "positive" : attendanceRate <= 55 ? "warning" : "neutral") as
+        | "neutral"
+        | "positive"
+        | "warning",
+    },
+    {
+      label: "Throughput forecast",
+      value: `${forecastCompleted} completed by next week`,
+      tone: (forecastCompletionRate >= completionRate ? "positive" : "neutral") as
+        | "neutral"
+        | "positive"
+        | "warning",
+    },
+  ];
 
   const handleGoogleConnect = async () => {
     try {
@@ -2198,6 +2325,7 @@ export default function DashboardPage() {
                   />
                 ))}
               </section>
+              <InsightTicker items={insightItems} />
               <div className="grid gap-4 xl:grid-cols-2">
                 <LineChartCard
                   title={leadershipView ? "Organization work-hour trend" : "Personal work-hour trend"}
@@ -2216,6 +2344,36 @@ export default function DashboardPage() {
                   suffix="%"
                   stroke="var(--success)"
                   fill="color-mix(in srgb, var(--success) 12%, transparent)"
+                />
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <ActivityBarsCard
+                  title="Created vs completed activity"
+                  subtitle="Daily workload creation compared with daily completion."
+                  labels={recentTrend.map((item) => item.label)}
+                  createdValues={recentTrend.map((item) => item.created)}
+                  completedValues={recentTrend.map((item) => item.completed)}
+                />
+                <PerformanceBars
+                  title="Operational quality indicators"
+                  subtitle="Modern CRM quality stack for delivery confidence."
+                  items={[
+                    {
+                      label: "Task completion quality",
+                      value: completionRate,
+                      helper: "Share of tasks reaching done state",
+                    },
+                    {
+                      label: "Live team availability",
+                      value: attendanceRate,
+                      helper: "Currently checked-in users",
+                    },
+                    {
+                      label: "Momentum health",
+                      value: Math.max(0, Math.min(100, 50 + Math.round(progressDelta * 5))),
+                      helper: "Trend-adjusted execution pulse",
+                    },
+                  ]}
                 />
               </div>
             </section>

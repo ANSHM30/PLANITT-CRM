@@ -1,6 +1,10 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import prisma from "../config/db.js";
+import { sendSafeError } from "../middleware/error.middleware.js";
+import { getJwtSecret } from "../config/security.js";
+import { verifyGoogleIdToken } from "../utils/google-token.js";
+import { clearAuthCookie, setAuthCookie } from "../utils/auth-cookie.js";
 
 const GOOGLE_AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -15,7 +19,7 @@ function getGoogleLoginConfig() {
 }
 
 function signToken(user) {
-  const secret = process.env.JWT_SECRET || "SECRET";
+  const secret = getJwtSecret();
   return jwt.sign(
     {
       userId: user.id,
@@ -25,23 +29,6 @@ function signToken(user) {
     secret,
     { expiresIn: "7d" }
   );
-}
-
-function decodeJwtPayload(token) {
-  if (!token) {
-    return {};
-  }
-
-  const parts = token.split(".");
-  if (parts.length !== 3) {
-    return {};
-  }
-
-  const payload = parts[1];
-  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-  const decoded = Buffer.from(padded, "base64").toString("utf8");
-  return JSON.parse(decoded);
 }
 
 export async function signup(req, res) {
@@ -89,10 +76,11 @@ export async function signup(req, res) {
     });
 
     const token = signToken(user);
+    setAuthCookie(res, token);
 
     return res.status(201).json({ token, user });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to create account");
   }
 }
 
@@ -107,16 +95,26 @@ export async function login(req, res) {
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {
+      // #region agent log
+      fetch("http://127.0.0.1:7655/ingest/6ce29a90-8aa2-4d64-ba64-939786193f6a",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1645cd"},body:JSON.stringify({sessionId:"1645cd",runId:"auth-debug",hypothesisId:"H1-invalid-credentials",location:"server/src/controllers/auth.controller.js:98",message:"Login failed because user was not found",data:{email:email ?? null,origin:req.headers.origin ?? null,host:req.headers.host ?? null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       return res.status(404).json({ error: "User not found" });
     }
 
     const valid = await bcrypt.compare(password, user.password);
 
     if (!valid) {
+      // #region agent log
+      fetch("http://127.0.0.1:7655/ingest/6ce29a90-8aa2-4d64-ba64-939786193f6a",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1645cd"},body:JSON.stringify({sessionId:"1645cd",runId:"auth-debug",hypothesisId:"H1-invalid-credentials",location:"server/src/controllers/auth.controller.js:105",message:"Login failed due to invalid password",data:{email:user.email,origin:req.headers.origin ?? null,host:req.headers.host ?? null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       return res.status(401).json({ error: "Invalid password" });
     }
 
     const token = signToken(user);
+    setAuthCookie(res, token);
+    // #region agent log
+    fetch("http://127.0.0.1:7655/ingest/6ce29a90-8aa2-4d64-ba64-939786193f6a",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1645cd"},body:JSON.stringify({sessionId:"1645cd",runId:"auth-debug",hypothesisId:"H2-cookie-session-flow",location:"server/src/controllers/auth.controller.js:111",message:"Login succeeded and auth cookie set",data:{userId:user.id,email:user.email,origin:req.headers.origin ?? null,host:req.headers.host ?? null,userAgent:req.headers["user-agent"] ?? null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     return res.json({
       token,
@@ -131,7 +129,7 @@ export async function login(req, res) {
       },
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to login");
   }
 }
 
@@ -169,7 +167,7 @@ export async function getCurrentUser(req, res) {
 
     return res.json(user);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return sendSafeError(res, err, "Unable to fetch current user");
   }
 }
 
@@ -177,6 +175,9 @@ export async function getGoogleLoginUrl(_req, res) {
   try {
     const config = getGoogleLoginConfig();
     if (!config.clientId || !config.redirectUri) {
+      // #region agent log
+      fetch("http://127.0.0.1:7655/ingest/6ce29a90-8aa2-4d64-ba64-939786193f6a",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1645cd"},body:JSON.stringify({sessionId:"1645cd",runId:"auth-debug",hypothesisId:"H3-google-config-missing",location:"server/src/controllers/auth.controller.js:170",message:"Google auth URL request failed due to missing config",data:{hasClientId:Boolean(config.clientId),hasRedirectUri:Boolean(config.redirectUri),origin:_req.headers.origin ?? null,host:_req.headers.host ?? null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       return res.status(400).json({
         error: "Google login is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_LOGIN_REDIRECT_URI.",
       });
@@ -186,7 +187,7 @@ export async function getGoogleLoginUrl(_req, res) {
       {
         nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       },
-      process.env.JWT_SECRET || "SECRET",
+      getJwtSecret(),
       { expiresIn: "10m" }
     );
 
@@ -206,7 +207,10 @@ export async function getGoogleLoginUrl(_req, res) {
       authUrl: `${GOOGLE_AUTH_BASE_URL}?${params.toString()}`,
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    // #region agent log
+    fetch("http://127.0.0.1:7655/ingest/6ce29a90-8aa2-4d64-ba64-939786193f6a",{method:"POST",headers:{"Content-Type":"application/json","X-Debug-Session-Id":"1645cd"},body:JSON.stringify({sessionId:"1645cd",runId:"auth-debug",hypothesisId:"H3-google-config-missing",location:"server/src/controllers/auth.controller.js:199",message:"Google auth URL handler threw error",data:{errorMessage:err?.message ?? "unknown",origin:_req.headers.origin ?? null,host:_req.headers.host ?? null},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return sendSafeError(res, err, "Unable to start Google login");
   }
 }
 
@@ -224,7 +228,7 @@ export async function handleGoogleLoginCallback(req, res) {
       return res.redirect(`${loginUrl}?google=missing_code`);
     }
 
-    jwt.verify(state, process.env.JWT_SECRET || "SECRET");
+    jwt.verify(state, getJwtSecret());
 
     if (!config.clientId || !config.clientSecret || !config.redirectUri) {
       return res.redirect(`${loginUrl}?google=missing_config`);
@@ -247,7 +251,7 @@ export async function handleGoogleLoginCallback(req, res) {
       return res.redirect(`${loginUrl}?google=token_failed`);
     }
 
-    const idTokenPayload = decodeJwtPayload(tokenPayload.id_token);
+    const idTokenPayload = await verifyGoogleIdToken(tokenPayload.id_token, config.clientId);
     const email = idTokenPayload.email;
     if (!email) {
       return res.redirect(`${loginUrl}?google=email_missing`);
@@ -268,9 +272,14 @@ export async function handleGoogleLoginCallback(req, res) {
     }
 
     const appToken = signToken(user);
-    const encodedToken = encodeURIComponent(appToken);
-    return res.redirect(`${loginUrl}#google=connected&google_token=${encodedToken}`);
+    setAuthCookie(res, appToken);
+    return res.redirect(`${loginUrl}?google=connected`);
   } catch (_err) {
     return res.redirect(`${loginUrl}?google=failed`);
   }
+}
+
+export async function logout(_req, res) {
+  clearAuthCookie(res);
+  return res.status(204).send();
 }
