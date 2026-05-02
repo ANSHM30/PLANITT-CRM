@@ -2,19 +2,25 @@ import { normalizeErrorMessage } from "./error-message";
 
 const FALLBACK_API_ORIGIN = "http://localhost:5000";
 
-function resolveApiBaseUrl() {
+export function resolveApiOrigin() {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
   if (configured) {
-    return configured.replace(/\/+$/, "");
+    return configured.replace(/\/api\/?$/, "").replace(/\/+$/, "");
   }
 
   if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    const apiProtocol = protocol === "https:" ? "https:" : "http:";
-    return `${apiProtocol}//${hostname}:5000/api`;
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return FALLBACK_API_ORIGIN;
+    }
+
+    return window.location.origin;
   }
 
-  return `${FALLBACK_API_ORIGIN}/api`;
+  return FALLBACK_API_ORIGIN;
+}
+
+export function resolveApiBaseUrl() {
+  return `${resolveApiOrigin()}/api`;
 }
 
 function buildApiUrl(path: string) {

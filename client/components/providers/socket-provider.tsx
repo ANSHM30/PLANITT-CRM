@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { getAuthEventName } from "@/lib/auth";
+import { resolveApiOrigin } from "@/lib/api";
 
 type SocketContextValue = {
   socket: Socket | null;
@@ -15,18 +16,7 @@ const SocketContext = createContext<SocketContextValue>({
 });
 
 function getSocketUrl() {
-  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
-  if (configured) {
-    return configured.replace(/\/api\/?$/, "");
-  }
-
-  if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    const socketProtocol = protocol === "https:" ? "https:" : "http:";
-    return `${socketProtocol}//${hostname}:5000`;
-  }
-
-  return "http://localhost:5000";
+  return resolveApiOrigin();
 }
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {

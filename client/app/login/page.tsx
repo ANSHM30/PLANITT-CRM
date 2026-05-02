@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "@/lib/auth";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
+import { resolveApiBaseUrl } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -52,7 +51,7 @@ export default function LoginPage() {
       setLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      const res = await fetch(`${resolveApiBaseUrl()}/auth/login`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -81,7 +80,7 @@ export default function LoginPage() {
       setGoogleLoading(true);
       setError("");
 
-      const res = await fetch(`${API_BASE_URL}/auth/google/auth-url`, {
+      const res = await fetch(`${resolveApiBaseUrl()}/auth/google/auth-url`, {
         credentials: "include",
       });
       const data = await res.json();

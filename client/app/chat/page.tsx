@@ -5,7 +5,7 @@ import { CRMShell } from "@/components/layout/crm-shell";
 import { useSocket } from "@/components/providers/socket-provider";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useSession } from "@/hooks/use-session";
-import { apiDelete, apiGet, apiPost, apiPostForm, apiPut } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPostForm, apiPut, resolveApiOrigin } from "@/lib/api";
 import { normalizeErrorMessage } from "@/lib/error-message";
 import type {
   CRMUser,
@@ -52,9 +52,7 @@ function resolveAttachmentUrl(url?: string | null) {
   if (url.startsWith("http://") || url.startsWith("https://")) {
     return url;
   }
-  const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
-  const origin = apiBase.replace(/\/api\/?$/, "");
-  return `${origin}${url}`;
+  return `${resolveApiOrigin()}${url}`;
 }
 
 function initials(name: string) {
