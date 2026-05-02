@@ -23,9 +23,14 @@ export function getAllowedCorsOrigins() {
     return configured;
   }
 
+  const clientUrl = (process.env.CLIENT_URL ?? "").trim();
+  if (clientUrl) {
+    return [clientUrl];
+  }
+
   if (process.env.NODE_ENV !== "production") {
     return DEFAULT_LOCAL_ORIGINS;
   }
 
-  throw new Error("CORS_ORIGINS must be configured in production.");
+  throw new Error("CORS_ORIGINS or CLIENT_URL must be configured in production.");
 }
