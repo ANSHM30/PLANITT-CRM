@@ -577,7 +577,8 @@ export async function disconnectGoogleWorkspace(req, res) {
 export async function createGoogleMeetSession(req, res) {
   try {
     const connection = await getUniversalGoogleConnection("meet");
-    const project = await getProjectWorkspaceContext(req.body.projectId);
+    const projectId = typeof req.body.projectId === "string" ? req.body.projectId.trim() : "";
+    const project = projectId ? await getProjectWorkspaceContext(projectId) : null;
 
     const attendeeIds = Array.isArray(req.body.attendeeUserIds)
       ? req.body.attendeeUserIds.filter(Boolean)
@@ -600,16 +601,16 @@ export async function createGoogleMeetSession(req, res) {
       {
         method: "POST",
         body: JSON.stringify({
-          summary: req.body.title?.trim() || `${project.name} CRM sync`,
+          summary: req.body.title?.trim() || `${project?.name || "Department"} CRM sync`,
           description:
             req.body.description?.trim() ||
-            `CRM workspace sync for ${project.name} (${project.department?.name || "No department"}).`,
+            `CRM workspace sync${project ? ` for ${project.name} (${project.department?.name || "No department"})` : " for department/team collaboration"}.`,
           start: { dateTime: startAt.toISOString() },
           end: { dateTime: endAt.toISOString() },
           attendees: attendees.map((attendee) => ({ email: attendee.email, displayName: attendee.name })),
           conferenceData: {
             createRequest: {
-              requestId: `crm-${project.id}-${Date.now()}`,
+              requestId: `crm-${project?.id || "department"}-${Date.now()}`,
               conferenceSolutionKey: { type: "hangoutsMeet" },
             },
           },
@@ -629,10 +630,12 @@ export async function createGoogleMeetSession(req, res) {
       startAt: payload.start?.dateTime || startAt.toISOString(),
       endAt: payload.end?.dateTime || endAt.toISOString(),
       attendeeCount: attendees.length,
-      project: {
-        id: project.id,
-        name: project.name,
-      },
+      project: project
+        ? {
+            id: project.id,
+            name: project.name,
+          }
+        : null,
     });
   } catch (err) {
     return sendSafeError(res, err, "Unable to create Google Meet session");
@@ -756,5 +759,78 @@ export async function createGoogleDriveProjectFolder(req, res) {
     });
   } catch (err) {
     return sendSafeError(res, err, "Unable to create Google Drive folder");
+  }
+}
+
+export async function uploadGoogleDriveFile(req, res) {
+  try {
+    const connection = await getUniversalGoogleConnection("drive");
+    const folderId = typeof req.body.folderId === "string" ? req.body.folderId.trim() : "";
+    const projectId = typeof req.body.projectId === "string" ? req.body.projectId.trim() : "";
+
+    if (!folderId) {
+      throw createError("Drive folder is required.", 400);
+    }
+
+    if (!req.file) {
+      throw createError("No file uploaded.", 400);
+    }
+
+    const providedName = typeof req.body.fileName === "string" ? req.body.fileName.trim() : "";
+    const fileName = providedName || req.file.originalname || `upload-${Date.now()}`;
+    const mimeType = req.file.mimetype || "application/octet-stream";
+
+    const fileMeta = await googleApiRequest(
+      `${GOOGLE_DRIVE_FILES_URL}?fields=id,name,mimeType,webViewLink,webContentLink,size`,
+      connection.accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: fileName,
+          parents: [folderId],
+          mimeType,
+        }),
+      }
+    );
+
+    await googleApiRequest(
+      `https://www.googleapis.com/upload/drive/v3/files/${fileMeta.id}?uploadType=media`,
+      connection.accessToken,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": mimeType,
+        },
+        body: req.file.buffer,
+      }
+    );
+
+    const uploadedFile = await googleApiRequest(
+      `${GOOGLE_DRIVE_FILES_URL}/${fileMeta.id}?fields=id,name,mimeType,webViewLink,webContentLink,size`,
+      connection.accessToken,
+      {
+        method: "GET",
+      }
+    );
+
+    const project = projectId ? await getProjectWorkspaceContext(projectId) : null;
+
+    return res.status(201).json({
+      service: "drive-upload",
+      folderId,
+      fileId: uploadedFile.id,
+      fileName: uploadedFile.name,
+      mimeType: uploadedFile.mimeType,
+      fileUrl: uploadedFile.webViewLink || uploadedFile.webContentLink || null,
+      size: uploadedFile.size ? Number(uploadedFile.size) : req.file.size,
+      project: project
+        ? {
+            id: project.id,
+            name: project.name,
+          }
+        : null,
+    });
+  } catch (err) {
+    return sendSafeError(res, err, "Unable to upload file to Google Drive");
   }
 }

@@ -5,11 +5,16 @@ import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
-import { apiGet, apiPost, apiPut } from "@/lib/api";
-import type { CRMUser, Department, UserRole } from "@/types/crm";
+import { apiGet, apiPost, apiPostForm, apiPut } from "@/lib/api";
+import type { BulkUserUploadResult, CRMUser, Department, UserRole } from "@/types/crm";
 type PaginatedResponse<T> = { items: T[]; total: number; hasMore: boolean; nextOffset: number };
 
 const baseRoles: UserRole[] = ["EMPLOYEE", "INTERN", "MANAGER", "ADMIN"];
+const bulkUploadTemplate = [
+  "name,email,password,role,designation,department,managerEmail",
+  "Aarav Sharma,aarav@planitt.com,TempPass@123,EMPLOYEE,Frontend Engineer,Engineering,manager@planitt.com",
+  "Meera Singh,meera@planitt.com,TempPass@123,INTERN,Design Intern,Design,manager@planitt.com",
+].join("\n");
 
 function Surface({ children }: { children: ReactNode }) {
   return (
@@ -46,6 +51,9 @@ export default function EmployeesPage() {
   });
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkUserUploadResult | null>(null);
   const [hasMoreUsers, setHasMoreUsers] = useState(false);
   const [nextUserOffset, setNextUserOffset] = useState(0);
   const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
@@ -126,6 +134,45 @@ export default function EmployeesPage() {
       setError(err instanceof Error ? err.message : "Failed to create team member");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const downloadBulkTemplate = () => {
+    const blob = new Blob([bulkUploadTemplate], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "team-bulk-upload-template.csv";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const uploadBulkUsers = async () => {
+    if (!bulkFile) {
+      setError("Choose a CSV file before uploading.");
+      return;
+    }
+
+    try {
+      setBulkUploading(true);
+      setError("");
+      setNotice("");
+      setBulkResult(null);
+      const formData = new FormData();
+      formData.append("file", bulkFile);
+      const result = await apiPostForm<BulkUserUploadResult>("/users/bulk-upload", formData);
+      setBulkResult(result);
+      setNotice(
+        result.failedCount
+          ? `Created ${result.createdCount} members. ${result.failedCount} rows need attention.`
+          : `Created ${result.createdCount} team members successfully.`
+      );
+      setBulkFile(null);
+      await loadTeam(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to bulk upload team members");
+    } finally {
+      setBulkUploading(false);
     }
   };
 
@@ -351,6 +398,92 @@ export default function EmployeesPage() {
                 >
                   {creating ? "Creating..." : "Create team member"}
                 </button>
+
+                <div
+                  className="rounded-[24px] border p-4"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+                >
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--text-faint)]">
+                        Bulk upload
+                      </p>
+                      <h3 className="mt-2 text-lg font-semibold text-[var(--text-main)]">
+                        Upload employees and interns by CSV
+                      </h3>
+                      <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
+                        Use this for faster onboarding. Supported roles in bulk upload are `EMPLOYEE`
+                        and `INTERN`.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={downloadBulkTemplate}
+                      className="rounded-xl border px-4 py-2 text-sm font-semibold"
+                      style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                    >
+                      Download sample CSV
+                    </button>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border p-4" style={fieldStyle}>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                      CSV format
+                    </p>
+                    <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs leading-6 text-[var(--text-soft)]">
+                      {bulkUploadTemplate}
+                    </pre>
+                    <p className="mt-3 text-xs leading-5 text-[var(--text-faint)]">
+                      `department` can be the department name, code, or id. `managerEmail` should be
+                      an existing admin or manager email. `designation` is optional.
+                    </p>
+                  </div>
+
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      className="block w-full text-sm text-[var(--text-soft)] file:mr-4 file:rounded-xl file:border-0 file:px-4 file:py-2 file:font-semibold file:text-white"
+                      style={{ color: "var(--text-soft)" } as const}
+                      onChange={(event) => setBulkFile(event.target.files?.[0] ?? null)}
+                    />
+                    <button
+                      type="button"
+                      disabled={bulkUploading || !bulkFile}
+                      onClick={() => void uploadBulkUsers()}
+                      className="h-11 rounded-2xl px-5 text-sm font-semibold text-white transition disabled:cursor-wait disabled:opacity-70"
+                      style={{ background: "var(--accent-strong)" }}
+                    >
+                      {bulkUploading ? "Uploading..." : "Upload CSV"}
+                    </button>
+                  </div>
+
+                  {bulkResult ? (
+                    <div
+                      className="mt-4 rounded-2xl border p-4 text-sm"
+                      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+                    >
+                      <p className="font-semibold text-[var(--text-main)]">
+                        Upload summary: {bulkResult.createdCount} created, {bulkResult.failedCount} failed
+                      </p>
+                      {bulkResult.errors.length ? (
+                        <div className="mt-3 space-y-2 text-xs text-rose-600">
+                          {bulkResult.errors.slice(0, 6).map((item) => (
+                            <p key={`${item.row}-${item.email ?? "row"}`}>
+                              Row {item.row}
+                              {item.email ? ` (${item.email})` : ""}: {item.message}
+                            </p>
+                          ))}
+                          {bulkResult.errors.length > 6 ? (
+                            <p className="text-[var(--text-faint)]">
+                              Showing first 6 issues. Fix the CSV and retry the remaining rows.
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             )}
           </Surface>

@@ -21,13 +21,13 @@ model User {
   designation               String?
   managerId                 String?
   attendances               Attendance[]
-  headedDepartment          Department?                @relation("DepartmentHead")
-  googleWorkspaceConnection GoogleWorkspaceConnection?
-  chatMessages              ChatMessage[]
-  createdChatGroups         ChatGroup[]                 @relation("ChatGroupCreator")
+  createdChatGroups         ChatGroup[]                @relation("ChatGroupCreator")
   groupMemberships          ChatGroupMember[]
+  chatMessages              ChatMessage[]
   hiddenChatMessages        ChatMessageHidden[]
   chatRoomReads             ChatRoomRead[]
+  headedDepartment          Department?                @relation("DepartmentHead")
+  googleWorkspaceConnection GoogleWorkspaceConnection?
   ownedProjects             Project[]
   assignments               TaskAssignment[]
   reportedIssues            TaskIssue[]                @relation("ReportedIssues")
@@ -47,9 +47,9 @@ model Department {
   headId       String?       @unique
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  chatMessages ChatMessage[]
   head         User?         @relation("DepartmentHead", fields: [headId], references: [id])
   projects     Project[]
-  chatMessages ChatMessage[]
   users        User[]        @relation("DepartmentMembers")
 }
 
@@ -61,10 +61,10 @@ model Project {
   ownerId      String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  chatMessages ChatMessage[]
   department   Department    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   owner        User?         @relation(fields: [ownerId], references: [id])
   tasks        Task[]
-  chatMessages ChatMessage[]
 }
 
 model Task {
@@ -148,34 +148,35 @@ model GoogleWorkspaceConnection {
 }
 
 model ChatMessage {
-  id           String          @id @default(cuid())
-  channelType  ChatChannelType
-  messageType  ChatMessageType @default(TEXT)
-  content      String
-  attachmentUrl String?
+  id                 String              @id @default(cuid())
+  channelType        ChatChannelType
+  content            String
+  authorId           String
+  departmentId       String?
+  projectId          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  messageType        ChatMessageType     @default(TEXT)
+  attachmentUrl      String?
   attachmentMimeType String?
   attachmentFileName String?
-  isDeleted    Boolean         @default(false)
-  deletedAt    DateTime?
-  replyToId    String?
-  groupId      String?
-  authorId     String
-  departmentId String?
-  projectId    String?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  author       User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  department   Department?     @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  project      Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  group        ChatGroup?      @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  replyTo      ChatMessage?    @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies      ChatMessage[]   @relation("MessageReplies")
-  hiddenBy     ChatMessageHidden[]
+  isDeleted          Boolean             @default(false)
+  deletedAt          DateTime?
+  replyToId          String?
+  groupId            String?
+  author             User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  department         Department?         @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  group              ChatGroup?          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  project            Project?            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  replyTo            ChatMessage?        @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies            ChatMessage[]       @relation("MessageReplies")
+  hiddenBy           ChatMessageHidden[]
 
   @@index([channelType, departmentId, createdAt])
   @@index([channelType, projectId, createdAt])
   @@index([channelType, groupId, createdAt])
   @@index([authorId])
+  @@index([replyToId])
 }
 
 model ChatMessageHidden {
@@ -183,8 +184,8 @@ model ChatMessageHidden {
   userId    String
   messageId String
   hiddenAt  DateTime    @default(now())
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, messageId])
   @@index([userId, hiddenAt])
@@ -196,8 +197,9 @@ model ChatRoomRead {
   channelType  ChatChannelType
   departmentId String?
   projectId    String?
-  groupId      String?
   lastReadAt   DateTime        @default(now())
+  groupId      String?
+  ChatGroup    ChatGroup?      @relation(fields: [groupId], references: [id])
   user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, channelType, departmentId, projectId])
@@ -205,15 +207,16 @@ model ChatRoomRead {
 }
 
 model ChatGroup {
-  id          String            @id @default(cuid())
-  name        String
-  description String?
-  createdById String
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  createdBy   User              @relation("ChatGroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
-  members     ChatGroupMember[]
-  messages    ChatMessage[]
+  id           String            @id @default(cuid())
+  name         String
+  description  String?
+  createdById  String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  createdBy    User              @relation("ChatGroupCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  members      ChatGroupMember[]
+  messages     ChatMessage[]
+  ChatRoomRead ChatRoomRead[]
 }
 
 model ChatGroupMember {

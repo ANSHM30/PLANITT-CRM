@@ -1,6 +1,8 @@
 import express from "express";
+import multer from "multer";
 import {
   createGoogleDriveProjectFolder,
+  uploadGoogleDriveFile,
   createGoogleMeetSession,
   createGoogleProjectSheet,
   disconnectGoogleWorkspace,
@@ -12,6 +14,12 @@ import { authMiddleware, authorizeRoles } from "../middleware/auth.middleware.js
 
 const router = express.Router();
 const googleWorkspaceRoles = ["SUPERADMIN", "ADMIN", "MANAGER"];
+const driveUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+  },
+});
 
 router.get(
   "/google/status",
@@ -38,6 +46,13 @@ router.post(
   authMiddleware,
   authorizeRoles(...googleWorkspaceRoles),
   createGoogleDriveProjectFolder
+);
+router.post(
+  "/google/drive/upload",
+  authMiddleware,
+  authorizeRoles(...googleWorkspaceRoles),
+  driveUpload.single("file"),
+  uploadGoogleDriveFile
 );
 router.delete(
   "/google/disconnect",

@@ -3,6 +3,9 @@ import prisma from "../config/db.js";
 import { emitCRMEvent } from "../socket.js";
 import { sendSafeError } from "../middleware/error.middleware.js";
 
+const USER_ALLOWED_ROLES = ["SUPERADMIN", "EMPLOYEE", "INTERN", "ADMIN", "MANAGER"];
+const BULK_ALLOWED_ROLES = new Set(["EMPLOYEE", "INTERN"]);
+
 function toPublicUserSelect() {
   return {
     id: true,
@@ -59,6 +62,162 @@ function getDurationHours(checkIn, checkOut) {
   const start = new Date(checkIn);
   const diffMs = Math.max(0, end.getTime() - start.getTime());
   return Number((diffMs / (1000 * 60 * 60)).toFixed(2));
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+
+    if (char === '"') {
+      if (inQuotes && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+  return values.map((value) => value.replace(/^"(.*)"$/, "$1").trim());
+}
+
+function parseCsv(content) {
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/^\uFEFF/, "");
+  const rows = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+
+    if (char === '"') {
+      if (inQuotes && normalized[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === "\n" && !inQuotes) {
+      if (current.trim()) {
+        rows.push(parseCsvLine(current));
+      }
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current.trim()) {
+    rows.push(parseCsvLine(current));
+  }
+
+  return rows;
+}
+
+async function resolveDepartmentId(departmentValue) {
+  const candidate = String(departmentValue || "").trim();
+  if (!candidate) {
+    return null;
+  }
+
+  const department = await prisma.department.findFirst({
+    where: {
+      OR: [{ id: candidate }, { code: candidate }, { name: candidate }],
+    },
+    select: { id: true },
+  });
+
+  if (!department) {
+    throw new Error(`Department "${candidate}" was not found`);
+  }
+
+  return department.id;
+}
+
+async function resolveManagerId(managerValue) {
+  const candidate = String(managerValue || "").trim();
+  if (!candidate) {
+    return null;
+  }
+
+  const manager = await prisma.user.findFirst({
+    where: {
+      OR: [{ id: candidate }, { email: candidate }],
+    },
+    select: { id: true, role: true },
+  });
+
+  if (!manager || !["SUPERADMIN", "ADMIN", "MANAGER"].includes(manager.role)) {
+    throw new Error(`Manager "${candidate}" is invalid`);
+  }
+
+  return manager.id;
+}
+
+async function createUserRecord(input, actorRole, actorUserId) {
+  const name = String(input.name || "").trim();
+  const email = String(input.email || "").trim().toLowerCase();
+  const password = String(input.password || "").trim();
+  const role = String(input.role || "EMPLOYEE").trim().toUpperCase();
+  const designation = typeof input.designation === "string" ? input.designation.trim() : "";
+
+  if (!name || !email || !password) {
+    throw new Error("Name, email, and password are required");
+  }
+
+  if (!USER_ALLOWED_ROLES.includes(role)) {
+    throw new Error("Invalid role");
+  }
+
+  if (actorRole !== "SUPERADMIN" && role === "SUPERADMIN") {
+    throw new Error("Only the CEO can create another superadmin");
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+
+  if (existingUser) {
+    throw new Error("User already exists");
+  }
+
+  const departmentId = await resolveDepartmentId(input.departmentId ?? input.department);
+  const managerId = await resolveManagerId(input.managerId ?? input.managerEmail);
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  return prisma.user.create({
+    data: {
+      name,
+      email,
+      password: hashedPassword,
+      role,
+      designation,
+      ...(departmentId ? { departmentId } : {}),
+      ...(managerId ? { managerId } : {}),
+      createdById: actorUserId,
+    },
+    select: toPublicUserSelect(),
+  });
 }
 
 function buildWorkingHoursTrend(records, days) {
@@ -208,73 +367,7 @@ export async function getUsers(_req, res) {
 
 export async function createUser(req, res) {
   try {
-    const {
-      name,
-      email,
-      password,
-      role = "EMPLOYEE",
-      departmentId,
-      managerId,
-      designation,
-    } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: "Name, email, and password are required" });
-    }
-
-    const allowedRoles = ["SUPERADMIN", "EMPLOYEE", "INTERN", "ADMIN", "MANAGER"];
-
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({ error: "Invalid role" });
-    }
-
-    if (req.user.role !== "SUPERADMIN" && role === "SUPERADMIN") {
-      return res.status(403).json({ error: "Only the CEO can create another superadmin" });
-    }
-
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      return res.status(409).json({ error: "User already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    if (departmentId) {
-      const department = await prisma.department.findUnique({
-        where: { id: departmentId },
-      });
-
-      if (!department) {
-        return res.status(404).json({ error: "Department not found" });
-      }
-    }
-
-    if (managerId) {
-      const manager = await prisma.user.findUnique({
-        where: { id: managerId },
-      });
-
-      if (!manager || !["SUPERADMIN", "ADMIN", "MANAGER"].includes(manager.role)) {
-        return res.status(400).json({ error: "Selected manager is invalid" });
-      }
-    }
-
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-        role,
-        designation,
-        ...(departmentId ? { departmentId } : {}),
-        ...(managerId ? { managerId } : {}),
-        createdById: req.user.userId,
-      },
-      select: toPublicUserSelect(),
-    });
+    const user = await createUserRecord(req.body, req.user.role, req.user.userId);
 
     emitCRMEvent("org:updated", {
       type: "user_created",
@@ -285,6 +378,95 @@ export async function createUser(req, res) {
     return res.status(201).json(user);
   } catch (err) {
     return sendSafeError(res, err, "Unable to create user");
+  }
+}
+
+export async function bulkCreateUsers(req, res) {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: "Upload a CSV file to continue" });
+    }
+
+    const rows = parseCsv(req.file.buffer.toString("utf-8"));
+    if (!rows.length) {
+      return res.status(400).json({ error: "CSV file is empty" });
+    }
+
+    const [headerRow, ...dataRows] = rows;
+    const headers = headerRow.map((header) => header.trim().toLowerCase());
+    const requiredHeaders = ["name", "email", "password"];
+    const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
+
+    if (missingHeaders.length) {
+      return res.status(400).json({
+        error: `CSV is missing required columns: ${missingHeaders.join(", ")}`,
+      });
+    }
+
+    const createdUsers = [];
+    const errors = [];
+
+    for (let index = 0; index < dataRows.length; index += 1) {
+      const row = dataRows[index];
+      if (!row.some((cell) => String(cell || "").trim())) {
+        continue;
+      }
+
+      const payload = headers.reduce((acc, header, headerIndex) => {
+        acc[header] = row[headerIndex] ?? "";
+        return acc;
+      }, {});
+
+      const normalizedRole = String(payload.role || "EMPLOYEE").trim().toUpperCase();
+      if (!BULK_ALLOWED_ROLES.has(normalizedRole)) {
+        errors.push({
+          row: index + 2,
+          email: String(payload.email || "").trim() || null,
+          message: 'Role must be either "EMPLOYEE" or "INTERN" for bulk upload',
+        });
+        continue;
+      }
+
+      try {
+        const user = await createUserRecord(
+          { ...payload, role: normalizedRole },
+          req.user.role,
+          req.user.userId
+        );
+        createdUsers.push(user);
+      } catch (error) {
+        errors.push({
+          row: index + 2,
+          email: String(payload.email || "").trim() || null,
+          message: error instanceof Error ? error.message : "Unable to create user",
+        });
+      }
+    }
+
+    if (createdUsers.length) {
+      emitCRMEvent("org:updated", {
+        type: "users_bulk_created",
+        count: createdUsers.length,
+      });
+    }
+
+    return res.status(createdUsers.length ? 201 : 200).json({
+      createdCount: createdUsers.length,
+      failedCount: errors.length,
+      createdUsers,
+      errors,
+      expectedColumns: [
+        "name",
+        "email",
+        "password",
+        "role",
+        "designation",
+        "department",
+        "managerEmail",
+      ],
+    });
+  } catch (err) {
+    return sendSafeError(res, err, "Unable to bulk upload users");
   }
 }
 

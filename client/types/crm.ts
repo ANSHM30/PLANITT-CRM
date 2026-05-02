@@ -355,7 +355,7 @@ export type GoogleMeetSessionResult = {
   project: {
     id: string;
     name: string;
-  };
+  } | null;
 };
 
 export type GoogleProjectSheetResult = {
@@ -381,6 +381,20 @@ export type GoogleDriveFolderResult = {
     id: string;
     name: string;
   };
+};
+
+export type GoogleDriveUploadResult = {
+  service: "drive-upload";
+  folderId: string;
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+  fileUrl: string | null;
+  size: number;
+  project: {
+    id: string;
+    name: string;
+  } | null;
 };
 
 export type UserAnalyticsSummary = {
@@ -419,4 +433,16 @@ export type UserAnalyticsSummary = {
       avgProgress: number;
     }>;
   };
+};
+
+export type BulkUserUploadResult = {
+  createdCount: number;
+  failedCount: number;
+  createdUsers: CRMUser[];
+  errors: Array<{
+    row: number;
+    email: string | null;
+    message: string;
+  }>;
+  expectedColumns: string[];
 };

@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
-import { apiDelete, apiGet, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPost, apiPostForm } from "@/lib/api";
 import { normalizeErrorMessage } from "@/lib/error-message";
 import type {
   CRMUser,
   DashboardSummary,
   EmployeeDashboardSummary,
   GoogleDriveFolderResult,
+  GoogleDriveUploadResult,
   GoogleMeetSessionResult,
   GoogleProjectSheetResult,
   GoogleWorkspaceStatus,
@@ -1053,13 +1054,13 @@ function DepartmentWisePanel({
 }
 
 function GoogleWorkspacePanel({
+  scope,
   status,
   loading,
   message,
   projects,
   users,
   selectedProjectId,
-  selectedAttendeeIds,
   actionLoading,
   meetResult,
   sheetResult,
@@ -1068,7 +1069,6 @@ function GoogleWorkspacePanel({
   onClearSheetResult,
   onClearDriveResult,
   onSelectProject,
-  onToggleAttendee,
   onConnect,
   onDisconnect,
   onCreateMeet,
@@ -1076,13 +1076,13 @@ function GoogleWorkspacePanel({
   onCreateDriveFolder,
   onSetMessage,
 }: {
+  scope: DashboardSummary["scope"];
   status: GoogleWorkspaceStatus | null;
   loading: boolean;
   message: string;
   projects: Project[];
   users: CRMUser[];
   selectedProjectId: string;
-  selectedAttendeeIds: string[];
   actionLoading: WorkspaceActionLoading;
   meetResult: GoogleMeetSessionResult | null;
   sheetResult: GoogleProjectSheetResult | null;
@@ -1091,10 +1091,9 @@ function GoogleWorkspacePanel({
   onClearSheetResult: () => void;
   onClearDriveResult: () => void;
   onSelectProject: (projectId: string) => void;
-  onToggleAttendee: (userId: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
-  onCreateMeet: () => void;
+  onCreateMeet: (attendeeUserIds: string[]) => void;
   onCreateSheet: () => void;
   onCreateDriveFolder: () => void;
   onSetMessage: (value: string) => void;
@@ -1110,7 +1109,44 @@ function GoogleWorkspacePanel({
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const [sharingAsset, setSharingAsset] = useState<"" | "meet" | "drive">("");
+  const [uploadingDriveFile, setUploadingDriveFile] = useState(false);
+  const driveFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [meetTargetMode, setMeetTargetMode] = useState<"project" | "department" | "all_departments">("project");
+  const [selectedMeetDepartmentId, setSelectedMeetDepartmentId] = useState("");
   const workspaceReady = Boolean(status?.connected);
+  const departmentChoices = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const member of users) {
+      if (member.department?.id && member.department?.name) {
+        map.set(member.department.id, member.department.name);
+      }
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
+  const selectedMeetDepartmentName =
+    departmentChoices.find((department) => department.id === selectedMeetDepartmentId)?.name || "";
+  const computedAudienceIds = useMemo(() => {
+    if (meetTargetMode === "project") {
+      if (!selectedProject?.departmentId) {
+        return [];
+      }
+      return users.filter((member) => member.departmentId === selectedProject.departmentId).map((member) => member.id);
+    }
+    if (meetTargetMode === "department") {
+      if (!selectedMeetDepartmentId) {
+        return [];
+      }
+      return users.filter((member) => member.departmentId === selectedMeetDepartmentId).map((member) => member.id);
+    }
+    return users.filter((member) => Boolean(member.departmentId)).map((member) => member.id);
+  }, [
+    meetTargetMode,
+    selectedMeetDepartmentId,
+    selectedProject?.departmentId,
+    users,
+  ]);
   const workspaceBadgeLabel = status?.connected
     ? "Connected"
     : status?.setupRequired
@@ -1163,6 +1199,37 @@ function GoogleWorkspacePanel({
       onSetMessage(normalizeErrorMessage(err, "Failed to share asset to chat."));
     } finally {
       setSharingAsset("");
+    }
+  };
+
+  const onDriveFilePicked = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const pickedFile = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!pickedFile) {
+      return;
+    }
+
+    if (!driveResult?.folderId || !driveResult?.project?.id) {
+      onSetMessage("Create a Drive workspace first before uploading files.");
+      return;
+    }
+
+    try {
+      setUploadingDriveFile(true);
+      const formData = new FormData();
+      formData.append("file", pickedFile);
+      formData.append("folderId", driveResult.folderId);
+      formData.append("projectId", driveResult.project.id);
+
+      const uploaded = await apiPostForm<GoogleDriveUploadResult>("/integrations/google/drive/upload", formData);
+      onSetMessage(
+        `Uploaded ${uploaded.fileName} to ${driveResult.project.name}${uploaded.fileUrl ? `. Open: ${uploaded.fileUrl}` : "."}`
+      );
+    } catch (err) {
+      onSetMessage(normalizeErrorMessage(err, "Failed to upload file to Drive workspace."));
+    } finally {
+      setUploadingDriveFile(false);
     }
   };
 
@@ -1307,8 +1374,13 @@ function GoogleWorkspacePanel({
               <div className="grid gap-3">
                 <button
                   type="button"
-                  onClick={onCreateMeet}
-                  disabled={!workspaceReady || !selectedProjectId || actionLoading === "meet"}
+                  onClick={() => onCreateMeet(computedAudienceIds)}
+                  disabled={
+                    !workspaceReady ||
+                    actionLoading === "meet" ||
+                    computedAudienceIds.length === 0 ||
+                    (meetTargetMode === "project" && !selectedProjectId)
+                  }
                   className="rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
                   style={{ background: "var(--accent)" }}
                 >
@@ -1375,11 +1447,53 @@ function GoogleWorkspacePanel({
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
                     Meet attendees
                   </p>
-                  <span className="text-xs text-[var(--text-soft)]">{selectedAttendeeIds.length} selected</span>
+                  <span className="text-xs text-[var(--text-soft)]">{computedAudienceIds.length} members</span>
                 </div>
+                <div className="mt-3 grid gap-2">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-faint)]">
+                    Meet for
+                  </label>
+                  <select
+                    value={meetTargetMode}
+                    onChange={(event) =>
+                      setMeetTargetMode(event.target.value as "project" | "department" | "all_departments")
+                    }
+                    className="h-11 w-full rounded-2xl border px-3 text-sm outline-none"
+                    style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-main)" }}
+                  >
+                    <option value="project">Selected project department</option>
+                    <option value="department">Single department</option>
+                    <option value="all_departments">All departments</option>
+                  </select>
+                  {meetTargetMode === "department" ? (
+                    <select
+                      value={selectedMeetDepartmentId}
+                      onChange={(event) => setSelectedMeetDepartmentId(event.target.value)}
+                      className="h-11 w-full rounded-2xl border px-3 text-sm outline-none"
+                      style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-main)" }}
+                    >
+                      <option value="">Select department</option>
+                      {departmentChoices.map((department) => (
+                        <option key={department.id} value={department.id}>
+                          {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+                <p className="mt-2 text-xs text-[var(--text-soft)]">
+                  {meetTargetMode === "project"
+                    ? selectedProject?.department?.name
+                      ? `Will invite all members in ${selectedProject.department.name}.`
+                      : "Selected project has no department."
+                    : meetTargetMode === "department"
+                      ? selectedMeetDepartmentName
+                        ? `Will invite all members in ${selectedMeetDepartmentName}.`
+                        : "Select a department."
+                      : "Will invite all members from all departments."}
+                </p>
                 <div className="mt-3 grid max-h-52 gap-2 overflow-y-auto pr-1">
-                  {users.map((member) => {
-                    const active = selectedAttendeeIds.includes(member.id);
+                  {users.filter((member) => computedAudienceIds.includes(member.id)).map((member) => {
                     return (
                       <label
                         key={member.id}
@@ -1390,7 +1504,9 @@ function GoogleWorkspacePanel({
                           <p className="truncate font-medium text-[var(--text-main)]">{member.name}</p>
                           <p className="truncate text-xs text-[var(--text-soft)]">{member.email}</p>
                         </div>
-                        <input type="checkbox" checked={active} onChange={() => onToggleAttendee(member.id)} />
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]">
+                          Included
+                        </span>
                       </label>
                     );
                   })}
@@ -1407,7 +1523,7 @@ function GoogleWorkspacePanel({
               <article className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
                 <p className="text-sm font-semibold text-[var(--text-main)]">Meet session ready</p>
                 <p className="mt-1 text-sm text-[var(--text-soft)]">
-                  {meetResult.project.name} | {new Date(meetResult.startAt).toLocaleString()}
+                  {(meetResult.project?.name || "Department meeting")} | {new Date(meetResult.startAt).toLocaleString()}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {meetResult.meetUrl ? (
@@ -1485,6 +1601,12 @@ function GoogleWorkspacePanel({
               <article className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}>
                 <p className="text-sm font-semibold text-[var(--text-main)]">Drive workspace created</p>
                 <p className="mt-1 text-sm text-[var(--text-soft)]">{driveResult.project.name}</p>
+                <input
+                  ref={driveFileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(event) => void onDriveFilePicked(event)}
+                />
                 <div className="mt-3 flex flex-wrap gap-2">
                   <a
                     href={
@@ -1520,6 +1642,15 @@ function GoogleWorkspacePanel({
                       Open summary file
                     </a>
                   ) : null}
+                  <button
+                    type="button"
+                    onClick={() => driveFileInputRef.current?.click()}
+                    disabled={uploadingDriveFile}
+                    className="rounded-xl border px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ borderColor: "var(--border)", color: "var(--text-main)" }}
+                  >
+                    {uploadingDriveFile ? "Uploading..." : "Upload file"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void shareAssetToChat("drive")}
@@ -1585,7 +1716,6 @@ export default function DashboardPage() {
   const [workspaceProjects, setWorkspaceProjects] = useState<Project[]>([]);
   const [workspaceUsers, setWorkspaceUsers] = useState<CRMUser[]>([]);
   const [selectedWorkspaceProjectId, setSelectedWorkspaceProjectId] = useState("");
-  const [selectedWorkspaceAttendeeIds, setSelectedWorkspaceAttendeeIds] = useState<string[]>([]);
   const [workspaceActionLoading, setWorkspaceActionLoading] = useState<WorkspaceActionLoading>("");
   const [meetResult, setMeetResult] = useState<GoogleMeetSessionResult | null>(null);
   const [sheetResult, setSheetResult] = useState<GoogleProjectSheetResult | null>(null);
@@ -1596,6 +1726,12 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
 
   const leadershipView = summary?.scope === "admin" || summary?.scope === "superadmin";
+  const filterWorkspaceProjectsByScope = (scope: DashboardSummary["scope"], projects: Project[]) => {
+    if (scope !== "admin") {
+      return projects;
+    }
+    return projects.filter((project) => project.owner?.id === user.id);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1742,7 +1878,6 @@ export default function DashboardPage() {
         setWorkspaceProjects([]);
         setWorkspaceUsers([]);
         setSelectedWorkspaceProjectId("");
-        setSelectedWorkspaceAttendeeIds([]);
         return;
       }
 
@@ -1753,7 +1888,7 @@ export default function DashboardPage() {
           apiGet<{ items: Project[] }>("/projects?paginate=true&limit=100&offset=0"),
           apiGet<{ items: CRMUser[] }>("/users?paginate=true&limit=120&offset=0"),
         ]);
-        const projectData = projectPage.items;
+        const projectData = filterWorkspaceProjectsByScope(summary.scope, projectPage.items);
         const userData = userPage.items;
         setWorkspaceStatus(statusData);
         setWorkspaceProjects(projectData);
@@ -1821,7 +1956,7 @@ export default function DashboardPage() {
             apiGet<{ items: Project[] }>("/projects?paginate=true&limit=100&offset=0"),
             apiGet<{ items: CRMUser[] }>("/users?paginate=true&limit=120&offset=0"),
           ]);
-          const projects = projectPage.items;
+          const projects = filterWorkspaceProjectsByScope(freshSummary.scope, projectPage.items);
           const users = userPage.items;
           setWorkspaceStatus(workspace);
           setWorkspaceProjects(projects);
@@ -2141,14 +2276,11 @@ export default function DashboardPage() {
     }
   };
 
-  const toggleWorkspaceAttendee = (userId: string) => {
-    setSelectedWorkspaceAttendeeIds((current) =>
-      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId]
-    );
-  };
-
-  const runWorkspaceAction = async (service: WorkspaceActionLoading) => {
-    if (!selectedWorkspaceProjectId) {
+  const runWorkspaceAction = async (
+    service: WorkspaceActionLoading,
+    attendeeUserIds: string[] = []
+  ) => {
+    if ((service === "sheets" || service === "drive") && !selectedWorkspaceProjectId) {
       setWorkspaceMessage("Pick a project before creating a Google Workspace asset.");
       return;
     }
@@ -2159,11 +2291,11 @@ export default function DashboardPage() {
 
       if (service === "meet") {
         const result = await apiPost<GoogleMeetSessionResult>("/integrations/google/meet/session", {
-          projectId: selectedWorkspaceProjectId,
-          attendeeUserIds: selectedWorkspaceAttendeeIds,
+          projectId: selectedWorkspaceProjectId || undefined,
+          attendeeUserIds,
         });
         setMeetResult(result);
-        setWorkspaceMessage(`Meet session created for ${result.project.name}.`);
+        setWorkspaceMessage(`Meet session created${result.project?.name ? ` for ${result.project.name}` : ""}.`);
       }
 
       if (service === "sheets") {
@@ -2475,13 +2607,13 @@ export default function DashboardPage() {
             </div>
             {canUseGoogleWorkspace(summary.scope) ? (
               <GoogleWorkspacePanel
+                scope={summary.scope}
                 status={workspaceStatus}
                 loading={workspaceLoading}
                 message={workspaceMessage}
                 projects={workspaceProjects}
                 users={workspaceUsers}
                 selectedProjectId={selectedWorkspaceProjectId}
-                selectedAttendeeIds={selectedWorkspaceAttendeeIds}
                 actionLoading={workspaceActionLoading}
                 meetResult={meetResult}
                 sheetResult={sheetResult}
@@ -2490,10 +2622,9 @@ export default function DashboardPage() {
                 onClearSheetResult={() => setSheetResult(null)}
                 onClearDriveResult={() => setDriveResult(null)}
                 onSelectProject={setSelectedWorkspaceProjectId}
-                onToggleAttendee={toggleWorkspaceAttendee}
                 onConnect={handleGoogleConnect}
                 onDisconnect={handleGoogleDisconnect}
-                onCreateMeet={() => void runWorkspaceAction("meet")}
+                onCreateMeet={(attendeeUserIds) => void runWorkspaceAction("meet", attendeeUserIds)}
                 onCreateSheet={() => void runWorkspaceAction("sheets")}
                 onCreateDriveFolder={() => void runWorkspaceAction("drive")}
                 onSetMessage={setWorkspaceMessage}

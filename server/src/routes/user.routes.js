@@ -1,5 +1,7 @@
 import express from "express";
+import multer from "multer";
 import {
+  bulkCreateUsers,
   createUser,
   getMyProfile,
   getUserAnalytics,
@@ -11,10 +13,23 @@ import {
 import { authMiddleware, authorizeRoles } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 2 * 1024 * 1024,
+  },
+});
 
 router.get("/me", authMiddleware, getMyProfile);
 router.put("/me/profile", authMiddleware, updateMyProfile);
 router.get("/", authMiddleware, authorizeRoles("SUPERADMIN", "ADMIN", "MANAGER"), getUsers);
+router.post(
+  "/bulk-upload",
+  authMiddleware,
+  authorizeRoles("SUPERADMIN", "ADMIN"),
+  upload.single("file"),
+  bulkCreateUsers
+);
 router.get(
   "/:id/analytics",
   authMiddleware,
