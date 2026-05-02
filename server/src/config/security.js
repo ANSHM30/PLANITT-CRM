@@ -38,3 +38,32 @@ export function getAllowedCorsOrigins() {
 
   throw new Error("CORS_ORIGINS or CLIENT_URL must be configured in production.");
 }
+
+/**
+ * When true, allows any https://*.vercel.app origin (production + preview deploys).
+ * Set on Render if browser shows "Failed to fetch" / connection errors only from preview URLs.
+ */
+export function corsAllowsAllVercelAppHosts() {
+  return String(process.env.CORS_ALLOW_VERCEL_APP ?? "").toLowerCase() === "true";
+}
+
+export function isCorsOriginAllowed(origin, allowedOrigins) {
+  if (!origin) {
+    return true;
+  }
+
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  if (!corsAllowsAllVercelAppHosts()) {
+    return false;
+  }
+
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" && url.hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}

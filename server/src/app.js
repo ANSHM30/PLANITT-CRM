@@ -7,7 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import apiRouter from "./routes/index.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
-import { getAllowedCorsOrigins } from "./config/security.js";
+import { getAllowedCorsOrigins, isCorsOriginAllowed } from "./config/security.js";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +26,7 @@ app.use(helmet());
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isCorsOriginAllowed(origin, allowedOrigins)) {
         callback(null, true);
         return;
       }
