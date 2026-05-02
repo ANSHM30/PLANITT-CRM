@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
+import { renderSessionGate } from "@/components/shared/session-gate";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiDelete, apiGet, apiPost, apiPostForm } from "@/lib/api";
@@ -1704,7 +1705,7 @@ function GoogleWorkspacePanel({
 }
 
 export default function DashboardPage() {
-  const { user, loading } = useSession();
+  const { user, loading, error: sessionError, retry: retrySession } = useSession();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [teamMembers, setTeamMembers] = useState<CRMUser[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState("");
@@ -2082,8 +2083,20 @@ export default function DashboardPage() {
     ];
   }, [summary]);
 
-  if (loading || !user) {
-    return <StatePanel title="Loading workspace" description="Preparing your CRM dashboard." />;
+  const sessionGate = renderSessionGate({
+    loading,
+    user,
+    error: sessionError,
+    retry: retrySession,
+    loadingTitle: "Loading workspace",
+    loadingDescription: "Preparing your CRM dashboard.",
+  });
+  if (sessionGate) {
+    return sessionGate;
+  }
+
+  if (!user) {
+    return null;
   }
 
   if (error || !summary) {

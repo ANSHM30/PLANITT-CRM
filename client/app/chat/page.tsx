@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { useSocket } from "@/components/providers/socket-provider";
 import { StatePanel } from "@/components/shared/state-panel";
+import { renderSessionGate } from "@/components/shared/session-gate";
 import { useSession } from "@/hooks/use-session";
 import { apiDelete, apiGet, apiPost, apiPostForm, apiPut, resolveApiOrigin } from "@/lib/api";
 import { normalizeErrorMessage } from "@/lib/error-message";
@@ -90,7 +91,7 @@ function getUrlLabel(url: string) {
 }
 
 export default function ChatPage() {
-  const { user, loading: sessionLoading } = useSession();
+  const { user, loading: sessionLoading, error: sessionError, retry: retrySession } = useSession();
   const { socket, connected } = useSocket();
   const [rooms, setRooms] = useState<ChatRoomsResponse>({ departments: [], projects: [], groups: [] });
   const [selectedKey, setSelectedKey] = useState("");
@@ -604,8 +605,20 @@ export default function ChatPage() {
     }
   };
 
-  if (sessionLoading || !user) {
-    return <StatePanel title="Loading chat" description="Preparing your CRM conversations." />;
+  const sessionGate = renderSessionGate({
+    loading: sessionLoading,
+    user,
+    error: sessionError,
+    retry: retrySession,
+    loadingTitle: "Loading chat",
+    loadingDescription: "Preparing your CRM conversations.",
+  });
+  if (sessionGate) {
+    return sessionGate;
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (

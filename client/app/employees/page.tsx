@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
+import { renderSessionGate } from "@/components/shared/session-gate";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost, apiPostForm, apiPut } from "@/lib/api";
@@ -32,7 +33,7 @@ function Surface({ children }: { children: ReactNode }) {
 }
 
 export default function EmployeesPage() {
-  const { user, loading: sessionLoading } = useSession({
+  const { user, loading: sessionLoading, error: sessionError, retry: retrySession } = useSession({
     allowedRoles: ["SUPERADMIN", "ADMIN", "MANAGER"],
   });
   const [users, setUsers] = useState<CRMUser[]>([]);
@@ -242,8 +243,20 @@ export default function EmployeesPage() {
     return member.manager?.role === "ADMIN" || member.manager?.role === "MANAGER";
   };
 
-  if (sessionLoading || !user) {
-    return <StatePanel title="Loading team workspace" description="Fetching access and employee data." />;
+  const sessionGate = renderSessionGate({
+    loading: sessionLoading,
+    user,
+    error: sessionError,
+    retry: retrySession,
+    loadingTitle: "Loading team workspace",
+    loadingDescription: "Fetching access and employee data.",
+  });
+  if (sessionGate) {
+    return sessionGate;
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (

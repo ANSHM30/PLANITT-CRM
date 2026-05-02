@@ -2,41 +2,53 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
 } from "react";
-
-type ThemeMode = "light" | "dark";
+import {
+  CRM_THEME_STORAGE_KEY,
+  DEFAULT_CRM_THEME,
+  type CRMThemeMode,
+  readStoredTheme,
+} from "@/lib/theme-storage";
 
 type ThemeContextValue = {
-  theme: ThemeMode;
-  setTheme: (theme: ThemeMode) => void;
+  theme: CRMThemeMode;
+  setTheme: (theme: CRMThemeMode) => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue>({
-  theme: "light",
+  theme: DEFAULT_CRM_THEME,
   setTheme: () => undefined,
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeMode>("light");
+  const [theme, setThemeState] = useState<CRMThemeMode>(DEFAULT_CRM_THEME);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+  useLayoutEffect(() => {
+    const stored = readStoredTheme();
+    const next = stored ?? DEFAULT_CRM_THEME;
+    setThemeState(next);
+    document.documentElement.dataset.theme = next;
+  }, []);
 
-  const setTheme = (nextTheme: ThemeMode) => {
+  const setTheme = useCallback((nextTheme: CRMThemeMode) => {
     setThemeState(nextTheme);
-  };
+    document.documentElement.dataset.theme = nextTheme;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CRM_THEME_STORAGE_KEY, nextTheme);
+    }
+  }, []);
 
   const value = useMemo(
     () => ({
       theme,
       setTheme,
     }),
-    [theme]
+    [theme, setTheme]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

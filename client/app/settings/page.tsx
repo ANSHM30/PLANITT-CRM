@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
+import { renderSessionGate } from "@/components/shared/session-gate";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPut } from "@/lib/api";
 import type { CRMUser } from "@/types/crm";
 
 export default function SettingsPage() {
-  const { user, loading } = useSession();
+  const { user, loading, error: sessionError, retry: retrySession } = useSession();
   const [profile, setProfile] = useState<CRMUser | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -59,8 +60,20 @@ export default function SettingsPage() {
     }
   };
 
-  if (loading || !user) {
-    return <StatePanel title="Loading settings" description="Preparing your account settings." />;
+  const sessionGate = renderSessionGate({
+    loading,
+    user,
+    error: sessionError,
+    retry: retrySession,
+    loadingTitle: "Loading settings",
+    loadingDescription: "Preparing your account settings.",
+  });
+  if (sessionGate) {
+    return sessionGate;
+  }
+
+  if (!user) {
+    return null;
   }
 
   if (!profile) {

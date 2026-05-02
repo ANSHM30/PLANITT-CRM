@@ -7,6 +7,7 @@ import { apiPost } from "@/lib/api";
 import { clearToken } from "@/lib/auth";
 import { useTheme } from "@/components/providers/theme-provider";
 import { useNotifications } from "@/hooks/use-notifications";
+import { migrateLegacyThemeKeys } from "@/lib/theme-storage";
 import type { CRMUser } from "@/types/crm";
 
 type CRMShellProps = {
@@ -51,6 +52,7 @@ export function CRMShell({ children, user }: CRMShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const { items, unreadCount, lastPushedId, markAllRead, markRead, clearAll } = useNotifications(user);
   const [toastVisible, setToastVisible] = useState(false);
@@ -93,17 +95,15 @@ export function CRMShell({ children, user }: CRMShellProps) {
   };
 
   useEffect(() => {
-    const storageKey = `crm-theme:${user.id}`;
-    const savedTheme = window.localStorage.getItem(storageKey) as "light" | "dark" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-    }
-  }, [setTheme, user.id]);
+    migrateLegacyThemeKeys(user.id);
+  }, [user.id]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
 
   const toggleTheme = () => {
-    const nextTheme = theme === "light" ? "dark" : "light";
-    window.localStorage.setItem(`crm-theme:${user.id}`, nextTheme);
-    setTheme(nextTheme);
+    setTheme(theme === "light" ? "dark" : "light");
   };
 
   const darkWorkspace = ["/tasks", "/projects"].some((route) => pathname.startsWith(route));
@@ -111,15 +111,64 @@ export function CRMShell({ children, user }: CRMShellProps) {
 
   return (
     <div
-      className={`min-h-screen text-[var(--text-main)] ${darkWorkspace ? "crm-shell-dark" : ""}`}
+      className={`min-h-screen overflow-x-hidden text-[var(--text-main)] ${darkWorkspace ? "crm-shell-dark" : ""}`}
       style={{
         background:
           "linear-gradient(135deg, color-mix(in srgb, var(--app-bg) 92%, white), var(--app-bg-accent))",
       }}
     >
-      <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col gap-3 px-3 py-3 lg:flex-row">
+      <header
+        className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center justify-between gap-3 border-b px-3 shadow-sm lg:hidden"
+        style={{
+          background: "var(--surface-strong)",
+          borderColor: "var(--border)",
+        }}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-sm font-black text-white">
+            P
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-[var(--text-main)]">Planitt CRM</p>
+            <p className="truncate text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-faint)]">
+              {pageTitle}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-[var(--text-main)]"
+          style={{ borderColor: "var(--border)", background: "var(--surface-soft)" }}
+          aria-expanded={mobileNavOpen}
+          aria-label={mobileNavOpen ? "Close navigation" : "Open navigation"}
+          onClick={() => setMobileNavOpen((open) => !open)}
+        >
+          {mobileNavOpen ? (
+            <span className="text-lg font-light leading-none">×</span>
+          ) : (
+            <span className="flex flex-col gap-1" aria-hidden>
+              <span className="block h-0.5 w-5 rounded-full bg-current" />
+              <span className="block h-0.5 w-5 rounded-full bg-current" />
+              <span className="block h-0.5 w-5 rounded-full bg-current" />
+            </span>
+          )}
+        </button>
+      </header>
+
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-black/45 lg:hidden"
+          aria-label="Close menu"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      ) : null}
+
+      <div className="mx-auto flex min-h-screen max-w-[1680px] flex-col gap-3 px-2 pb-3 pt-[3.75rem] sm:px-3 sm:py-3 lg:flex-row lg:px-3 lg:pt-3">
         <aside
-          className="w-full overflow-hidden rounded-lg border px-3 py-3 lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)] lg:w-[214px] lg:shrink-0"
+          className={`fixed bottom-0 left-0 top-14 z-50 w-[min(288px,90vw)] overflow-hidden rounded-r-lg border px-3 py-3 shadow-xl transition-transform duration-200 ease-out lg:static lg:top-auto lg:z-auto lg:w-[214px] lg:shrink-0 lg:rounded-lg lg:shadow-none lg:transition-none ${
+            mobileNavOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+          } lg:sticky lg:top-3 lg:h-[calc(100vh-1.5rem)]`}
           style={{
             background: darkWorkspace
               ? "linear-gradient(180deg, #071120 0%, #0b1626 100%)"
@@ -154,6 +203,7 @@ export function CRMShell({ children, user }: CRMShellProps) {
                   <Link
                     key={item.href}
                     href={item.href}
+                    onClick={() => setMobileNavOpen(false)}
                     className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-[13px] font-semibold transition ${
                       isActive
                         ? darkWorkspace

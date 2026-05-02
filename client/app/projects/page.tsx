@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { StatePanel } from "@/components/shared/state-panel";
+import { renderSessionGate } from "@/components/shared/session-gate";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
@@ -31,7 +32,7 @@ function Surface({ children }: { children: ReactNode }) {
 }
 
 export default function ProjectsPage() {
-  const { user, loading: sessionLoading } = useSession({
+  const { user, loading: sessionLoading, error: sessionError, retry: retrySession } = useSession({
     allowedRoles: ["SUPERADMIN", "ADMIN", "MANAGER"],
   });
   const [projects, setProjects] = useState<Project[]>([]);
@@ -302,8 +303,20 @@ export default function ProjectsPage() {
     }
   };
 
-  if (sessionLoading || !user) {
-    return <StatePanel title="Loading projects" description="Preparing the project workspace." />;
+  const sessionGate = renderSessionGate({
+    loading: sessionLoading,
+    user,
+    error: sessionError,
+    retry: retrySession,
+    loadingTitle: "Loading projects",
+    loadingDescription: "Preparing the project workspace.",
+  });
+  if (sessionGate) {
+    return sessionGate;
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (

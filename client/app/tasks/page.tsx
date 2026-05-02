@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
+import { renderSessionGate } from "@/components/shared/session-gate";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { useSession } from "@/hooks/use-session";
 import { apiGet, apiPost } from "@/lib/api";
@@ -29,7 +30,7 @@ function Surface({ children }: { children: ReactNode }) {
 
 function TasksPageContent() {
   const searchParams = useSearchParams();
-  const { user, loading: sessionLoading } = useSession();
+  const { user, loading: sessionLoading, error: sessionError, retry: retrySession } = useSession();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [team, setTeam] = useState<CRMUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,8 +141,20 @@ function TasksPageContent() {
     }
   };
 
-  if (sessionLoading || !user) {
-    return <StatePanel title="Loading tasks" description="Preparing the task workspace." />;
+  const sessionGate = renderSessionGate({
+    loading: sessionLoading,
+    user,
+    error: sessionError,
+    retry: retrySession,
+    loadingTitle: "Loading tasks",
+    loadingDescription: "Preparing the task workspace.",
+  });
+  if (sessionGate) {
+    return sessionGate;
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (

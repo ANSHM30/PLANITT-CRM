@@ -6,6 +6,10 @@ import { getJwtSecret } from "../config/security.js";
 import { verifyGoogleIdToken } from "../utils/google-token.js";
 import { clearAuthCookie, setAuthCookie } from "../utils/auth-cookie.js";
 
+function normalizeEmail(email) {
+  return String(email ?? "").trim().toLowerCase();
+}
+
 const GOOGLE_AUTH_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -33,7 +37,8 @@ function signToken(user) {
 
 export async function signup(req, res) {
   try {
-    const { name, email, password } = req.body;
+    const { name, password } = req.body;
+    const email = normalizeEmail(req.body?.email);
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: "Name, email, and password are required" });
@@ -86,7 +91,8 @@ export async function signup(req, res) {
 
 export async function login(req, res) {
   try {
-    const { email, password } = req.body;
+    const { password } = req.body;
+    const email = normalizeEmail(req.body?.email);
 
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
@@ -252,7 +258,7 @@ export async function handleGoogleLoginCallback(req, res) {
     }
 
     const idTokenPayload = await verifyGoogleIdToken(tokenPayload.id_token, config.clientId);
-    const email = idTokenPayload.email;
+    const email = normalizeEmail(idTokenPayload.email);
     if (!email) {
       return res.redirect(`${loginUrl}?google=email_missing`);
     }

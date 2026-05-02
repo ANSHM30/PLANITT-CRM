@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { setToken } from "@/lib/auth";
 import { resolveApiBaseUrl } from "@/lib/api";
+import { normalizeLoginEmail } from "@/lib/normalize-email";
+import { parseApiJsonBody } from "@/lib/parse-api-response";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,25 +53,45 @@ export default function LoginPage() {
       setLoading(true);
       setError("");
 
+      const normalizedEmail = normalizeLoginEmail(email);
+      if (!normalizedEmail || !password) {
+        setError("Enter your email and password.");
+        return;
+      }
+
       const res = await fetch(`${resolveApiBaseUrl()}/auth/login`, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: normalizedEmail, password }),
       });
 
-      const data = await res.json();
+      const { json, rawSnippet } = await parseApiJsonBody(res);
+      const message =
+        typeof json?.error === "string"
+          ? json.error
+          : !res.ok && rawSnippet
+            ? `Server returned an unexpected response (${res.status}). Check NEXT_PUBLIC_API_URL and that the API is running.`
+            : res.status === 429
+              ? "Too many login attempts. Please wait a few minutes and try again."
+              : "Login failed";
 
       if (!res.ok) {
-        throw new Error(data.error || "Login failed");
+        throw new Error(message);
       }
 
       setToken("cookie-session");
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      if (err instanceof TypeError && err.message.toLowerCase().includes("fetch")) {
+        setError(
+          `Cannot reach the API. Confirm the backend is running and NEXT_PUBLIC_API_URL points to it (${resolveApiBaseUrl()}).`
+        );
+      } else {
+        setError(err instanceof Error ? err.message : "Login failed");
+      }
     } finally {
       setLoading(false);
     }
@@ -97,26 +119,41 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(76,122,255,0.24),transparent_28%),linear-gradient(180deg,#f8fafc_0%,#e0e7ff_100%)] px-4 py-10">
-      <div className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl items-center gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-[36px] border border-white/60 bg-slate-950 p-8 text-white shadow-[0_30px_120px_rgba(15,23,42,0.35)] lg:p-12">
-          <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">
+    <div
+      className="min-h-screen w-full overflow-x-hidden px-3 py-6 sm:px-4 sm:py-10"
+      style={{
+        background:
+          "radial-gradient(circle at top, color-mix(in srgb, var(--accent) 24%, transparent), transparent 28%), linear-gradient(180deg, var(--app-bg) 0%, var(--app-bg-accent) 100%)",
+      }}
+    >
+      <div className="mx-auto grid min-h-[calc(100dvh-3rem)] max-w-6xl items-center gap-6 sm:gap-8 md:min-h-[calc(100vh-5rem)] lg:grid-cols-[1.1fr_0.9fr]">
+        <section
+          className="rounded-[28px] border p-6 text-white shadow-[0_30px_120px_rgba(15,23,42,0.35)] sm:rounded-[36px] sm:p-8 lg:p-12"
+          style={{
+            background: "linear-gradient(165deg, #0f172a 0%, #020617 100%)",
+            borderColor: "rgba(255,255,255,0.12)",
+          }}
+        >
+          <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-slate-300 sm:text-xs">
             Modern CRM Workspace
           </div>
-          <h1 className="mt-8 max-w-2xl text-4xl font-semibold leading-tight lg:text-6xl">
+          <h1 className="mt-6 max-w-2xl text-3xl font-semibold leading-tight sm:mt-8 sm:text-4xl lg:text-6xl">
             Run sales, people, and daily operations from one simple dashboard.
           </h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-slate-300">
+          <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300 sm:mt-6 sm:text-base">
             Admins can manage employees, interns, and task allocation. Team members get a clean daily workspace focused on execution.
           </p>
 
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+          <div className="mt-8 grid gap-3 sm:mt-10 sm:grid-cols-3 sm:gap-4">
             {[
               { label: "Role-based access", value: "Admin / Employee / Intern" },
               { label: "Task tracking", value: "Create, assign, update" },
               { label: "Daily workflow", value: "Attendance + execution" },
             ].map((item) => (
-              <div key={item.label} className="rounded-3xl border border-white/10 bg-white/5 p-4">
+              <div
+                key={item.label}
+                className="rounded-2xl border border-white/10 bg-white/5 p-3 sm:rounded-3xl sm:p-4"
+              >
                 <p className="text-xs uppercase tracking-[0.22em] text-slate-400">{item.label}</p>
                 <p className="mt-3 text-sm font-medium text-white">{item.value}</p>
               </div>
@@ -124,50 +161,80 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <section className="rounded-[36px] border border-white/60 bg-white/85 p-8 shadow-[0_30px_120px_rgba(15,23,42,0.14)] backdrop-blur lg:p-10">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+        <section
+          className="rounded-[28px] border p-6 shadow-[0_30px_120px_rgba(15,23,42,0.14)] backdrop-blur sm:rounded-[36px] sm:p-8 lg:p-10"
+          style={{
+            background: "color-mix(in srgb, var(--surface-strong) 88%, transparent)",
+            borderColor: "var(--border)",
+          }}
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--text-faint)] sm:text-sm">
             Planitt CRM
           </p>
-          <h2 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">Login</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-500">
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--text-main)] sm:mt-4 sm:text-4xl">
+            Login
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-[var(--text-soft)] sm:mt-3">
             Use the seeded admin or employee account to explore the CRM experience.
           </p>
 
-          <div className="mt-8 space-y-4">
+          <form
+            className="mt-6 space-y-4 sm:mt-8"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleLogin();
+            }}
+          >
             <input
               suppressHydrationWarning
-              className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-950"
+              className="h-12 w-full rounded-2xl border px-4 text-[var(--text-main)] outline-none transition placeholder:text-[var(--text-faint)] sm:h-14"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--surface-soft)",
+              }}
               placeholder="Email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
 
             <input
               suppressHydrationWarning
-              className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-950"
+              className="h-12 w-full rounded-2xl border px-4 text-[var(--text-main)] outline-none transition placeholder:text-[var(--text-faint)] sm:h-14"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--surface-soft)",
+              }}
               type="password"
               placeholder="Password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </div>
 
-          {error ? <p className="mt-4 text-sm font-medium text-rose-600">{error}</p> : null}
+            {error ? <p className="text-sm font-medium text-[var(--danger)]">{error}</p> : null}
 
-          <button
-            suppressHydrationWarning
-            onClick={handleLogin}
-            className="mt-6 h-14 w-full rounded-2xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-70"
-            disabled={loading}
-          >
-            {loading ? "Logging in..." : "Enter workspace"}
-          </button>
+            <button
+              suppressHydrationWarning
+              type="submit"
+              className="h-12 w-full rounded-2xl text-sm font-semibold text-white transition hover:opacity-95 disabled:cursor-wait disabled:opacity-70 sm:h-14"
+              style={{ background: "var(--accent-strong)" }}
+              disabled={loading}
+            >
+              {loading ? "Logging in..." : "Enter workspace"}
+            </button>
+          </form>
 
           <button
             suppressHydrationWarning
             type="button"
             onClick={handleGoogleLogin}
-            className="mt-3 h-14 w-full rounded-2xl border border-slate-300 bg-white text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-70"
+            className="mt-3 h-12 w-full rounded-2xl border text-sm font-semibold transition hover:opacity-95 disabled:cursor-wait disabled:opacity-70 sm:h-14"
+            style={{
+              borderColor: "var(--border)",
+              background: "var(--surface)",
+              color: "var(--text-main)",
+            }}
             disabled={googleLoading}
           >
             {googleLoading ? "Redirecting to Google..." : "Login with Google"}

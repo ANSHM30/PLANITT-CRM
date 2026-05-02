@@ -12,18 +12,22 @@ export function getJwtSecret() {
   return getRequiredEnv("JWT_SECRET");
 }
 
+function normalizeOrigin(origin) {
+  return origin.trim().replace(/\/+$/, "");
+}
+
 export function getAllowedCorsOrigins() {
   const raw = process.env.CORS_ORIGINS ?? "";
   const configured = raw
     .split(",")
-    .map((origin) => origin.trim())
+    .map((origin) => normalizeOrigin(origin))
     .filter(Boolean);
 
   if (configured.length > 0) {
     return configured;
   }
 
-  const clientUrl = (process.env.CLIENT_URL ?? "").trim();
+  const clientUrl = normalizeOrigin(process.env.CLIENT_URL ?? "");
   if (clientUrl) {
     return [clientUrl];
   }

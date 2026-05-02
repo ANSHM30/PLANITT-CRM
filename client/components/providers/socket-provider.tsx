@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { io, type Socket } from "socket.io-client";
+import type { Socket } from "socket.io-client";
 import { getAuthEventName } from "@/lib/auth";
 import { resolveApiOrigin } from "@/lib/api";
 
@@ -36,23 +36,33 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const nextSocket = io(getSocketUrl(), {
-      transports: ["websocket"],
-      withCredentials: true,
-    });
+    let cancelled = false;
+    let nextSocket: Socket | null = null;
 
-    nextSocket.on("connect", () => {
-      setConnected(true);
-    });
+    void import("socket.io-client").then(({ io }) => {
+      if (cancelled) {
+        return;
+      }
 
-    nextSocket.on("disconnect", () => {
-      setConnected(false);
-    });
+      nextSocket = io(getSocketUrl(), {
+        transports: ["websocket"],
+        withCredentials: true,
+      });
 
-    setSocket(nextSocket);
+      nextSocket.on("connect", () => {
+        setConnected(true);
+      });
+
+      nextSocket.on("disconnect", () => {
+        setConnected(false);
+      });
+
+      setSocket(nextSocket);
+    });
 
     return () => {
-      nextSocket.disconnect();
+      cancelled = true;
+      nextSocket?.disconnect();
       setSocket(null);
       setConnected(false);
     };
