@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { CRMShell } from "@/components/layout/crm-shell";
 import { TaskList } from "@/components/modules/task-list";
 import { StatePanel } from "@/components/shared/state-panel";
@@ -27,7 +27,7 @@ function Surface({ children }: { children: ReactNode }) {
   );
 }
 
-export default function TasksPage() {
+function TasksPageContent() {
   const searchParams = useSearchParams();
   const { user, loading: sessionLoading } = useSession();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -343,5 +343,13 @@ export default function TasksPage() {
         </div>
       </div>
     </CRMShell>
+  );
+}
+
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<StatePanel title="Loading tasks" description="Preparing the task workspace." />}>
+      <TasksPageContent />
+    </Suspense>
   );
 }

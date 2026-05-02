@@ -1163,7 +1163,7 @@ function GoogleWorkspacePanel({
         : { background: "var(--surface-soft)", color: "var(--text-soft)" };
 
   const shareAssetToChat = async (service: "meet" | "drive") => {
-    const resultProjectId = service === "meet" ? meetResult?.project.id : driveResult?.project.id;
+    const resultProjectId = service === "meet" ? meetResult?.project?.id : driveResult?.project?.id;
     if (!resultProjectId) {
       onSetMessage("Generate the asset first before sharing to chat.");
       return;
@@ -1172,14 +1172,14 @@ function GoogleWorkspacePanel({
     const content =
       service === "meet"
         ? [
-            `Google Meet session created for ${meetResult?.project.name}.`,
+            `Google Meet session created for ${meetResult?.project?.name ?? "the project"}.`,
             meetResult?.meetUrl ? `Meet: ${meetResult.meetUrl}` : null,
             meetResult?.eventUrl ? `Calendar event: ${meetResult.eventUrl}` : null,
           ]
             .filter(Boolean)
             .join("\n")
         : [
-            `Google Drive workspace created for ${driveResult?.project.name}.`,
+            `Google Drive workspace created for ${driveResult?.project?.name ?? "the project"}.`,
             driveResult?.folderUrl ? `Folder: ${driveResult.folderUrl}` : null,
             driveResult?.summaryFileUrl ? `Summary file: ${driveResult.summaryFileUrl}` : null,
           ]
@@ -1729,6 +1729,9 @@ export default function DashboardPage() {
   const filterWorkspaceProjectsByScope = (scope: DashboardSummary["scope"], projects: Project[]) => {
     if (scope !== "admin") {
       return projects;
+    }
+    if (!user?.id) {
+      return [];
     }
     return projects.filter((project) => project.owner?.id === user.id);
   };
